@@ -11,7 +11,7 @@ Every existing trace generator falls into one of two categories:
 1. **Flat span generators** (telemetrygen, tracepusher) - produce uniform, identical spans with no service topology
 2. **Full demo apps** (OTel Astronomy Shop, Jaeger HotROD) - require Docker Compose with 15+ containers and 8GB RAM
 
-And none of them generate **AI agentic traces**. The LLM observability market ($6.8B by 2029) has no standalone tool that combines traditional APM with LLM observability. Every specialized LLM tool (Langfuse, LangSmith, Helicone, Arize, Traceloop, Portkey, Galileo) tracks token usage, model costs, and agent tool calls - but none of them provide traditional distributed tracing.
+And none of them generate **AI agentic traces**. The LLM observability market has no standalone tool that combines traditional APM with LLM observability. Every specialized LLM tool (Langfuse, LangSmith, Helicone, Arize, Traceloop, Portkey, Galileo) tracks token usage, model costs, and agent tool calls - but none of them provide traditional distributed tracing.
 
 This tool generates **topology-rich, failure-injectable traces from a single binary** - covering both traditional microservice flows AND AI agentic patterns with OTel GenAI semantic conventions. One binary proves that a platform can visualize both.
 
@@ -143,7 +143,7 @@ All 59 pods are distributed across 5 AKS VMSS nodes (2 node pools) with realisti
 
 ### OTel GenAI Semantic Conventions
 
-All AI scenarios emit spans following [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) and matching the exact span shapes produced by [Microsoft Semantic Kernel](https://learn.microsoft.com/en-us/semantic-kernel/concepts/enterprise-readiness/observability/) and [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/tutorials/agents/enable-observability).
+All AI scenarios emit spans following [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) and matching the exact span shapes produced by [Microsoft Semantic Kernel](https://learn.microsoft.com/en-us/semantic-kernel/concepts/enterprise-readiness/observability/) and [Microsoft Agent Framework](https://learn.microsoft.com/en-us/semantic-kernel/frameworks/agent/agent-observability).
 
 **Span types:**
 
@@ -153,11 +153,11 @@ All AI scenarios emit spans following [OTel GenAI Semantic Conventions](https://
 | `embedding {model}` | CLIENT | `embedding text-embedding-3-small` |
 | `invoke_agent {name}` | CLIENT | `invoke_agent CustomerSupportAgent` |
 | `execute_tool {name}` | INTERNAL | `execute_tool get_order_status` |
-| `retrieve {collection}` | CLIENT | `retrieve product-embeddings` |
+| `{operation} {collection}` | CLIENT | `query product-embeddings` |
 
 **Attributes on every LLM span:**
 
-- `gen_ai.system` / `gen_ai.provider.name` - LLM provider (e.g., `openai`)
+- `gen_ai.system` - LLM provider (e.g., `openai`)
 - `gen_ai.request.model` / `gen_ai.response.model` - model requested and used
 - `gen_ai.usage.input_tokens` / `gen_ai.usage.output_tokens` - token consumption
 - `gen_ai.response.finish_reasons` - completion reason (`stop`, `tool_calls`, `length`, `content_filter`)
@@ -170,7 +170,7 @@ All AI scenarios emit spans following [OTel GenAI Semantic Conventions](https://
 - `gen_ai.conversation.id` - session linking for multi-turn interactions
 - `gen_ai.tool.name` / `gen_ai.tool.type` / `gen_ai.tool.call.id` - tool call tracking
 - `gen_ai.data_source.id` - RAG data source identifier
-- `gen_ai.embeddings.dimension.count` - embedding dimensions
+- `gen_ai.request.embedding.dimensions` - embedding dimensions
 
 These attributes match what every LLM observability tool on the market tracks - enabling direct comparison of visualization capabilities.
 
@@ -266,9 +266,9 @@ tracegen -apikey local -endpoint localhost:4317 -insecure
 | Capability | tracegen | OTel telemetrygen | OTel Astronomy Shop | Jaeger HotROD | k6 + xk6-tracing |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Single binary, zero infra | **Yes** | 1 binary | 15+ containers, 8GB | 4 containers | k6 + extension |
-| Services | **28** | 1 | ~14 | 4 | User-defined |
+| Services | **28** | 1 | ~22 | 4 | User-defined |
 | Pod instances | **59** | 0 | 1/svc | 0 | 0 |
-| Scenario flows | **40** | 0 | ~5 | 1 | User-defined |
+| Scenario flows | **40** | 0 | ~10 | 1 | User-defined |
 | AI agentic scenarios | **12** | No | No | No | No |
 | OTel GenAI conventions | **Yes** | No | No | No | No |
 | Agent tool call traces | **Yes** | No | No | No | No |
@@ -335,7 +335,7 @@ GOOS=windows GOARCH=amd64 go build -o tracegen.exe ./cmd/tracegen
 
 ### Why AI Agentic Scenarios?
 
-The LLM observability market is a $6.8B opportunity (36.3% CAGR to 2029), but every specialized tool focuses exclusively on LLM workloads. No standalone LLM observability tool provides traditional APM capabilities. The only platforms addressing both are legacy APM giants (Datadog, New Relic, Dynatrace) adding LLM features to existing products.
+The LLM observability market is growing rapidly, but every specialized tool focuses exclusively on LLM workloads. No standalone LLM observability tool provides traditional APM capabilities. The only platforms addressing both are legacy APM giants (Datadog, New Relic, Dynatrace) adding LLM features to existing products.
 
 This trace generator produces both traditional distributed traces AND AI agentic traces from the same binary - proving that a single platform can visualize both. The AI scenarios emit the exact same telemetry signals that Langfuse, LangSmith, Helicone, Arize, Traceloop, Portkey, and Galileo track.
 
@@ -345,7 +345,7 @@ Microsoft's Semantic Kernel and Agent Framework are the most widely adopted .NET
 
 ### Why OTel GenAI Semantic Conventions?
 
-The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) (currently v1.38.0, "Development" status) are being adopted across the ecosystem. Langfuse SDK v3 is OTel-native, LangSmith added OTel support in 2025, Arize Phoenix uses OTel instrumentation, and Traceloop's OpenLLMetry conventions were adopted into the official OTel spec. Building on these conventions ensures the generated traces are compatible with every tool that adopts the standard.
+The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) are being adopted across the ecosystem. Langfuse SDK v3 is OTel-native, LangSmith added OTel support, Arize Phoenix uses OTel instrumentation, and Traceloop's OpenLLMetry conventions were adopted into the official OTel spec. Building on these conventions ensures the generated traces are compatible with every tool that adopts the standard.
 
 ### Sources
 
@@ -355,8 +355,8 @@ The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semcon
 | [OTel GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) | Agent span conventions: invoke_agent, execute_tool |
 | [OTel GenAI Attribute Registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) | Complete `gen_ai.*` attribute list with types |
 | [MS Semantic Kernel Observability](https://learn.microsoft.com/en-us/semantic-kernel/concepts/enterprise-readiness/observability/) | Activity sources, metrics, `gen_ai` attribute usage |
-| [MS Agent Framework Observability](https://learn.microsoft.com/en-us/agent-framework/tutorials/agents/enable-observability) | Production span shapes: `invoke_agent`, `chat`, `execute_tool` |
-| [LLM Observability Market Research (SP-023)](docs/analysis/) | Market gap analysis, competitive positioning, feature parity requirements |
+| [MS Agent Framework Observability](https://learn.microsoft.com/en-us/semantic-kernel/frameworks/agent/agent-observability) | Production span shapes: `invoke_agent`, `chat`, `execute_tool` |
+| LLM Observability Market Research (internal) | Market gap analysis, competitive positioning, feature parity requirements |
 | [Langfuse OTel Integration](https://langfuse.com/integrations/native/opentelemetry) | OTel-native SDK v3, attribute expectations |
 | [Traceloop OpenLLMetry](https://github.com/traceloop/openllmetry) | OTel GenAI conventions adopted into official spec |
 
