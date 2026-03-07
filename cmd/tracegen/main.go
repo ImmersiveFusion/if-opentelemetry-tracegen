@@ -19,6 +19,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var tracerPool = map[string][]trace.Tracer{}
@@ -31,11 +32,16 @@ func tracer(svc string) trace.Tracer {
 }
 
 func newProvider(ctx context.Context, serviceName, endpoint, apiKey, instanceID, hostName string) *sdktrace.TracerProvider {
-	exporter, err := otlptracegrpc.New(ctx,
+	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{})),
 		otlptracegrpc.WithHeaders(map[string]string{"API-Key": apiKey}),
-	)
+	}
+	if insecureMode {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()))
+	} else {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{})))
+	}
+	exporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		log.Fatalf("failed to create exporter for %s: %v", serviceName, err)
 	}
@@ -81,6 +87,9 @@ var errorMultiplier float64
 // consumersEnabled — when false, all async consumers are dead (queue messages pile up)
 var consumersEnabled bool
 
+// insecureMode — when true, use plaintext gRPC (no TLS) for local backends
+var insecureMode bool
+
 // errorChance scales a base error probability by the global error multiplier.
 // Base rates are tuned for -errors=5 (moderate). At 0 = no errors, at 10 = ~2x base.
 func errorChance(baseRate float64) bool {
@@ -93,8 +102,10 @@ func main() {
 	level := flag.Int("level", 1, "aggressiveness 1-10 (1=whisper, 10=SCREAM)")
 	errors := flag.Int("errors", 0, "error rate 0-10 (0=none, 5=normal, 10=chaos)")
 	noConsumers := flag.Bool("no-consumers", false, "disable all async consumers (messages published but never consumed)")
+	insecureFlag := flag.Bool("insecure", false, "use plaintext gRPC (no TLS) for local backends")
 	flag.Parse()
 	consumersEnabled = !*noConsumers
+	insecureMode = *insecureFlag
 
 	endpoint := *endpointFlag
 	apiKey := *apiKeyFlag

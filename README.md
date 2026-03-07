@@ -13,6 +13,18 @@ Every existing trace generator falls into one of two categories:
 
 Nothing generates **topology-rich, failure-injectable traces from a single binary**. This tool fills that gap.
 
+## Built with Jerry
+
+This project was designed and validated using the [Jerry Framework](https://github.com/geekatron/jerry/) ([docs](https://jerry.geekatron.org/)) - an AI-native systems engineering framework for Claude Code.
+
+- **Adversarial quality review** - Every one of the 15 scenario flows and 6 chaos/failure modes was stress-tested using Jerry's `/adversary` skill. The adversarial review challenged trace realism, span attribute completeness, failure propagation correctness, and edge-case coverage. Each scenario was scored against adversarial templates and iterated until it passed.
+
+- **Red team validation** - Jerry's `/red-team` skill probed the tool from an offensive security perspective - verifying that generated traces don't leak secrets, that the binary doesn't introduce supply-chain risk, and that the OTLP output conforms to spec even under chaos conditions.
+
+- **NASA-grade systems engineering** - The requirements, architecture, and verification matrix were driven through Jerry's `/nasa-se` skill (implementing NPR 7123.1D processes). The project achieved a **/nasa-se score > 0.9**, meaning requirements traceability, verification coverage, and risk disposition all met mission-grade thresholds before the first release.
+
+The combination of `/adversary`, `/red-team`, and `/nasa-se` is why a single developer could ship a tool with 20 services, 43 pods, 15 flows, and 6 failure modes - with confidence that it actually works correctly.
+
 ## Quick Start
 
 ```bash
@@ -27,9 +39,7 @@ export OTEL_APIKEY=YOUR_API_KEY
 tracegen -endpoint your-otlp-endpoint:443
 ```
 
-### See It In Action
-
-Try the [IAPM demo](https://demo.iapm.app) to see these traces rendered in an immersive 3D force-directed graph - no setup required.
+> **See it in 3D** - Try the [IAPM demo](https://demo.iapm.app) to see these traces rendered in an immersive 3D force-directed graph, no setup required.
 
 ## Features
 
@@ -80,18 +90,22 @@ All 43 pods are distributed across 5 AKS VMSS nodes (2 node pools) with realisti
 | **Saga Compensation** | V-shape (forward + 4-way reverse) | Payment retries + compensation fan-out |
 | **Timeout Cascade** | Branching with circuit breaker | Stale cache fallback |
 
+> **Note:** Failed Payment, Saga Compensation, and Timeout Cascade only activate when `-errors > 0`.
+
 ### Chaos & Failure Injection
 
 | Feature | Description |
 |---|---|
 | **Lost messages** | 5% chance per queue hop that the consumer never fires - trace ends abruptly |
-| **Dead consumer mode** | `-no-consumers` flag: producers fire, consumers never pick up. Messages pile up. |
+| **Dead consumer mode** | `-no-consumers` flag: producers fire, consumers never pick up |
 | **Retry storms** | Payment retries 3x with exponential backoff before saga compensation |
 | **Timeout cascades** | Search service times out, gateway returns 504, circuit breaker serves stale cache |
 | **Saga compensation** | Payment fails after order+inventory committed - triggers 4-way parallel rollback |
 | **Tunable error rate** | `-errors 0` (none) to `-errors 10` (chaos) with realistic .NET stack traces |
 
 ### Realistic Details
+
+The generated traces simulate a .NET-based e-commerce platform. Stack traces and library names reflect the .NET ecosystem by design.
 
 - **Stack traces**: Npgsql, StackExchange.Redis, Stripe SDK, Elasticsearch.Net, System.Net.Http
 - **Database operations**: PostgreSQL INSERT/SELECT/UPDATE with semantic conventions
@@ -112,6 +126,7 @@ Flags:
   -level int         Aggressiveness 1-10 (default 1)
   -errors int        Error rate 0-10 (default 0)
   -no-consumers      Disable all async consumers
+  -insecure          Use plaintext gRPC (no TLS) for local backends
 ```
 
 ### Aggressiveness Levels
@@ -144,15 +159,15 @@ tracegen -apikey $KEY -level 3 -no-consumers
 # Chaos mode - maximum load and errors
 tracegen -apikey $KEY -level 10 -errors 10
 
-# Send to a local Jaeger/Tempo instance
-tracegen -apikey $KEY -endpoint localhost:4317
+# Send to a local Jaeger/Tempo instance (use -insecure for plaintext gRPC)
+tracegen -apikey $KEY -endpoint localhost:4317 -insecure
 ```
 
 ## How It Compares
 
 | Capability | tracegen | OTel telemetrygen | OTel Astronomy Shop | Jaeger HotROD | k6 + xk6-tracing |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Single binary, zero infra | **5MB** | 1 binary | 15+ containers, 8GB | 4 containers | k6 + extension |
+| Single binary, zero infra | **Yes** | 1 binary | 15+ containers, 8GB | 4 containers | k6 + extension |
 | Services | **20** | 1 | ~14 | 4 | User-defined |
 | Pod instances | **43** | 0 | 1/svc | 0 | 0 |
 | Scenario flows | **15** | 0 | ~5 | 1 | User-defined |
@@ -167,6 +182,24 @@ tracegen -apikey $KEY -endpoint localhost:4317
 | Tunable throughput | **2-350/s** | Rate flag | Locust | Fixed | k6 VUs |
 | Non-UI entry points | **3** | No | No | No | No |
 | Startup time | **<1s** | <1s | 3-5 min | 30s | <5s |
+
+## Compatible Backends
+
+Works with any OTLP gRPC-compatible backend:
+
+- [Immersive APM](https://immersivefusion.com) (3D visualization)
+- Jaeger
+- Grafana Tempo
+- Honeycomb
+- New Relic
+- Datadog (with OTLP endpoint)
+- Splunk Observability
+- Elastic APM
+- Any OpenTelemetry Collector
+
+## Related Tools
+
+- **[OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample)** - Interactive chaos engineering sandbox with visual failure injection. Complements tracegen: generate topology-rich traces here, inject chaos there, [visualize both in 3D](https://demo.iapm.app).
 
 ## Building From Source
 
@@ -189,22 +222,19 @@ GOOS=darwin GOARCH=arm64 go build -o tracegen ./cmd/tracegen
 GOOS=windows GOARCH=amd64 go build -o tracegen.exe ./cmd/tracegen
 ```
 
-## Compatible Backends
+## Connect
 
-Works with any OTLP gRPC-compatible backend:
+[Email](mailto:info@immersivefusion.com) |
+[LinkedIn](https://www.linkedin.com/company/immersivefusion) |
+[Discord](https://discord.gg/zevywnQp6K) |
+[GitHub](https://github.com/immersivefusion) |
+[Twitter/X](https://twitter.com/immersivefusion) |
+[YouTube](https://www.youtube.com/@immersivefusion)
 
-- [IAPM](https://iapm.app) (Immersive APM)
-- Jaeger
-- Grafana Tempo
-- Honeycomb
-- New Relic
-- Datadog (with OTLP endpoint)
-- Splunk Observability
-- Elastic APM
-- Any OpenTelemetry Collector
+[Try Immersive APM](https://immersivefusion.com/landing/default) for your own projects.
 
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
-Copyright 2026 [ImmersiveFusion, Inc.](https://immersivefusion.com)
+Copyright 2026 [ImmersiveFusion](https://immersivefusion.com)
