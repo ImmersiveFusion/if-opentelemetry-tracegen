@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -90,6 +92,12 @@ var consumersEnabled bool
 // insecureMode — when true, use plaintext gRPC (no TLS) for local backends
 var insecureMode bool
 
+// noAIBackends — when true, AI services are excluded (AI spans emit errors)
+var noAIBackends bool
+
+// aiOnly — when true, only AI agentic scenarios are run
+var aiOnly bool
+
 // errorChance scales a base error probability by the global error multiplier.
 // Base rates are tuned for -errors=5 (moderate). At 0 = no errors, at 10 = ~2x base.
 func errorChance(baseRate float64) bool {
@@ -103,9 +111,13 @@ func main() {
 	errors := flag.Int("errors", 0, "error rate 0-10 (0=none, 5=normal, 10=chaos)")
 	noConsumers := flag.Bool("no-consumers", false, "disable all async consumers (messages published but never consumed)")
 	insecureFlag := flag.Bool("insecure", false, "use plaintext gRPC (no TLS) for local backends")
+	noAIBackendsFlag := flag.Bool("no-ai-backends", false, "disable all LLM/AI backends (AI spans emit errors)")
+	aiOnlyFlag := flag.Bool("ai-only", false, "only run AI agentic scenarios")
 	flag.Parse()
 	consumersEnabled = !*noConsumers
 	insecureMode = *insecureFlag
+	noAIBackends = *noAIBackendsFlag
+	aiOnly = *aiOnlyFlag
 
 	endpoint := *endpointFlag
 	apiKey := *apiKeyFlag
@@ -138,73 +150,92 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// Create providers per service instance — realistic multi-pod deployment
-	type pod struct{ svc, id, node string }
-	pods := []pod{
-		// web-frontend (2 replicas)
-		{"web-frontend", "web-frontend-d7b48c-x2km9", "aks-userpool1-38437823-vmss000000"},
-		{"web-frontend", "web-frontend-d7b48c-n3pr7", "aks-userpool1-38437823-vmss000001"},
-		// api-gateway (3 replicas, spread across node pools)
-		{"api-gateway", "api-gateway-e5a21b-j4hk8", "aks-userpool1-38437823-vmss000000"},
-		{"api-gateway", "api-gateway-e5a21b-w2tp6", "aks-userpool1-38437823-vmss000001"},
-		{"api-gateway", "api-gateway-e5a21b-m9qv1", "aks-userpool2-52891647-vmss000000"},
-		// order-service (3 replicas)
-		{"order-service", "order-svc-f3c91a-h5rd3", "aks-userpool1-38437823-vmss000001"},
-		{"order-service", "order-svc-f3c91a-k8nj2", "aks-userpool1-38437823-vmss000002"},
-		{"order-service", "order-svc-f3c91a-p7tw4", "aks-userpool2-52891647-vmss000000"},
-		// payment-service (2 replicas)
-		{"payment-service", "payment-svc-a82d4e-t7mw4", "aks-userpool1-38437823-vmss000002"},
-		{"payment-service", "payment-svc-a82d4e-q1vx6", "aks-userpool2-52891647-vmss000001"},
-		// inventory-service (2 replicas)
-		{"inventory-service", "inventory-svc-b46e5f-k2pn8", "aks-userpool1-38437823-vmss000000"},
-		{"inventory-service", "inventory-svc-b46e5f-j9dr4", "aks-userpool2-52891647-vmss000000"},
-		// notification-service (2 replicas)
-		{"notification-service", "notif-svc-c59f2a-m3wh7", "aks-userpool1-38437823-vmss000001"},
-		{"notification-service", "notif-svc-c59f2a-x6kv1", "aks-userpool2-52891647-vmss000001"},
-		// user-service (2 replicas)
-		{"user-service", "user-svc-d63a7b-p4td2", "aks-userpool1-38437823-vmss000002"},
-		{"user-service", "user-svc-d63a7b-n8jq5", "aks-userpool2-52891647-vmss000000"},
-		// cache-service (3 replicas — Redis cluster)
-		{"cache-service", "cache-svc-e71b4c-h6wm3", "aks-userpool1-38437823-vmss000000"},
-		{"cache-service", "cache-svc-e71b4c-k9tp1", "aks-userpool1-38437823-vmss000001"},
-		{"cache-service", "cache-svc-e71b4c-r2vd7", "aks-userpool2-52891647-vmss000001"},
-		// search-service (2 replicas)
-		{"search-service", "search-svc-f85c3d-j5mw2", "aks-userpool1-38437823-vmss000002"},
-		{"search-service", "search-svc-f85c3d-t8nk4", "aks-userpool2-52891647-vmss000000"},
-		// scheduler-service (1 replica — singleton cron)
-		{"scheduler-service", "scheduler-svc-a93d1e-n1ph6", "aks-userpool1-38437823-vmss000000"},
-		// auth-service (3 replicas — high traffic)
-		{"auth-service", "auth-svc-b47e2f-m4kr8", "aks-userpool1-38437823-vmss000001"},
-		{"auth-service", "auth-svc-b47e2f-w2jt9", "aks-userpool1-38437823-vmss000002"},
-		{"auth-service", "auth-svc-b47e2f-p6hn3", "aks-userpool2-52891647-vmss000000"},
-		// recommendation-service (2 replicas)
-		{"recommendation-service", "rec-svc-c58a3c-h7vn2", "aks-userpool1-38437823-vmss000001"},
-		{"recommendation-service", "rec-svc-c58a3c-p5tk8", "aks-userpool2-52891647-vmss000001"},
-		// cart-service (2 replicas)
-		{"cart-service", "cart-svc-d72b5e-j3kn9", "aks-userpool1-38437823-vmss000000"},
-		{"cart-service", "cart-svc-d72b5e-w8pm4", "aks-userpool2-52891647-vmss000001"},
-		// product-service (3 replicas — high read traffic)
-		{"product-service", "product-svc-e85c6f-m2hr7", "aks-userpool1-38437823-vmss000000"},
-		{"product-service", "product-svc-e85c6f-n9tv5", "aks-userpool1-38437823-vmss000001"},
-		{"product-service", "product-svc-e85c6f-k4jw3", "aks-userpool2-52891647-vmss000000"},
-		// shipping-service (2 replicas)
-		{"shipping-service", "shipping-svc-f96d7a-p5tn2", "aks-userpool1-38437823-vmss000002"},
-		{"shipping-service", "shipping-svc-f96d7a-h8km6", "aks-userpool2-52891647-vmss000000"},
-		// fraud-service (2 replicas — ML model)
-		{"fraud-service", "fraud-svc-a17e8b-j6wr4", "aks-userpool1-38437823-vmss000002"},
-		{"fraud-service", "fraud-svc-a17e8b-m3tp1", "aks-userpool2-52891647-vmss000001"},
-		// email-service (2 replicas)
-		{"email-service", "email-svc-b28f9c-k4hn7", "aks-userpool1-38437823-vmss000001"},
-		{"email-service", "email-svc-b28f9c-w9jm5", "aks-userpool2-52891647-vmss000000"},
-		// tax-service (1 replica — lightweight)
-		{"tax-service", "tax-svc-c39a1d-n2vp8", "aks-userpool1-38437823-vmss000000"},
-		// analytics-service (3 replicas — high write volume)
-		{"analytics-service", "analytics-svc-d41b2e-h5km3", "aks-userpool1-38437823-vmss000001"},
-		{"analytics-service", "analytics-svc-d41b2e-p8jt6", "aks-userpool1-38437823-vmss000002"},
-		{"analytics-service", "analytics-svc-d41b2e-w2nr9", "aks-userpool2-52891647-vmss000000"},
-		// config-service (1 replica — singleton)
-		{"config-service", "config-svc-e52c3f-m7wk4", "aks-userpool1-38437823-vmss000002"},
+	// Service definitions with replica ranges — pods are generated at startup
+	type serviceSpec struct {
+		name    string // service name
+		prefix  string // pod ID prefix
+		hash    string // deployment hash (6 hex chars)
+		minPods int    // minimum replicas
+		maxPods int    // maximum replicas
+		isAI    bool   // AI service — excluded when -no-ai-backends
 	}
+	services := []serviceSpec{
+		// Traditional services
+		{"web-frontend", "web-frontend", "d7b48c", 2, 4, false},
+		{"api-gateway", "api-gateway", "e5a21b", 3, 6, false},
+		{"order-service", "order-svc", "f3c91a", 2, 5, false},
+		{"payment-service", "payment-svc", "a82d4e", 2, 4, false},
+		{"inventory-service", "inventory-svc", "b46e5f", 2, 4, false},
+		{"notification-service", "notif-svc", "c59f2a", 2, 4, false},
+		{"user-service", "user-svc", "d63a7b", 2, 4, false},
+		{"cache-service", "cache-svc", "e71b4c", 3, 5, false},
+		{"search-service", "search-svc", "f85c3d", 2, 4, false},
+		{"scheduler-service", "scheduler-svc", "a93d1e", 1, 1, false},
+		{"auth-service", "auth-svc", "b47e2f", 3, 5, false},
+		{"recommendation-service", "rec-svc", "c58a3c", 2, 4, false},
+		{"cart-service", "cart-svc", "d72b5e", 2, 4, false},
+		{"product-service", "product-svc", "e85c6f", 3, 5, false},
+		{"shipping-service", "shipping-svc", "f96d7a", 2, 4, false},
+		{"fraud-service", "fraud-svc", "a17e8b", 2, 3, false},
+		{"email-service", "email-svc", "b28f9c", 2, 4, false},
+		{"tax-service", "tax-svc", "c39a1d", 1, 2, false},
+		{"analytics-service", "analytics-svc", "d41b2e", 3, 5, false},
+		{"config-service", "config-svc", "e52c3f", 1, 2, false},
+		// AI services
+		{"llm-gateway", "llm-gw", "a23b4c", 2, 5, true},
+		{"embedding-service", "embed-svc", "b34c5d", 2, 4, true},
+		{"vector-db-service", "vecdb-svc", "c45d6e", 2, 3, true},
+		{"ai-agent-service", "agent-svc", "d56e7f", 2, 4, true},
+		{"content-moderation-service", "modsvc", "e67f8a", 2, 3, true},
+		{"model-registry-service", "modelreg", "f78a9b", 1, 1, true},
+		{"feature-store-service", "featstore", "a89b1c", 2, 3, true},
+		{"data-pipeline-service", "pipeline", "b91c2d", 2, 3, true},
+	}
+
+	// AKS VMSS nodes (2 node pools, 5 nodes total)
+	nodes := []string{
+		"aks-userpool1-38437823-vmss000000",
+		"aks-userpool1-38437823-vmss000001",
+		"aks-userpool1-38437823-vmss000002",
+		"aks-userpool2-52891647-vmss000000",
+		"aks-userpool2-52891647-vmss000001",
+	}
+
+	// Deterministic pod suffix pool for realistic instance IDs
+	suffixes := []string{
+		"x2km9", "n3pr7", "j4hk8", "w2tp6", "m9qv1", "h5rd3", "k8nj2", "p7tw4",
+		"t7mw4", "q1vx6", "k2pn8", "j9dr4", "m3wh7", "x6kv1", "p4td2", "n8jq5",
+		"h6wm3", "k9tp1", "r2vd7", "j5mw2", "t8nk4", "n1ph6", "m4kr8", "w2jt9",
+		"p6hn3", "h7vn2", "p5tk8", "j3kn9", "w8pm4", "m2hr7", "n9tv5", "k4jw3",
+		"p5tn2", "h8km6", "j6wr4", "m3tp1", "k4hn7", "w9jm5", "n2vp8", "h5km3",
+		"p8jt6", "w2nr9", "m7wk4", "k7mn2", "p9qr5", "h4st8", "j2vw6", "m8xy3",
+		"n5ab9", "q7cd4", "r3ef1", "t6gh7", "u9ij5", "v2kl8", "w5mn3", "x8op6",
+		"y1qr9", "z4st2", "a7uv5", "b3wx8",
+	}
+
+	// Generate pods from service specs with replica ranges
+	type pod struct{ svc, id, node string }
+	var pods []pod
+	suffixIdx := 0
+	totalServices := 0
+	for _, svc := range services {
+		if svc.isAI && noAIBackends {
+			continue
+		}
+		totalServices++
+		replicas := svc.minPods
+		if svc.maxPods > svc.minPods {
+			replicas = svc.minPods + rand.Intn(svc.maxPods-svc.minPods+1)
+		}
+		for r := 0; r < replicas; r++ {
+			suffix := suffixes[suffixIdx%len(suffixes)]
+			suffixIdx++
+			podID := fmt.Sprintf("%s-%s-%s", svc.prefix, svc.hash, suffix)
+			node := nodes[(suffixIdx+r)%len(nodes)]
+			pods = append(pods, pod{svc.name, podID, node})
+		}
+	}
+
 	for _, p := range pods {
 		newProvider(ctx, p.svc, endpoint, apiKey, p.id, p.node)
 	}
@@ -220,30 +251,44 @@ func main() {
 	defer ticker.Stop()
 
 	type namedScenario struct {
-		name    string
-		fn      func(context.Context)
-		isError bool // true = dedicated error scenario, excluded when -errors=0
+		name     string
+		fn       func(context.Context)
+		isError  bool   // true = dedicated error scenario, excluded when -errors=0
+		category string // "traditional", "ai", or "chaos"
 	}
 	allScenarios := []namedScenario{
-		{"Create Order", createOrderFlow, false},
-		{"Search & Browse", searchAndBrowseFlow, false},
-		{"User Login", userLoginFlow, false},
-		{"Failed Payment", failedPaymentFlow, true},
-		{"Bulk Notifications", bulkNotificationFlow, false},
-		{"Health Check", healthCheckFlow, false},
-		{"Inventory Sync", inventorySyncFlow, false},
-		{"Scheduled Report", scheduledReportFlow, false},
-		{"Stripe Webhook", stripeWebhookFlow, false},
-		{"Recommendations", recommendationFlow, false},
-		{"Add to Cart", addToCartFlow, false},
-		{"Full Checkout", fullCheckoutFlow, false},
-		{"Shipping Update", shippingUpdateFlow, false},
-		{"Saga Compensation", sagaCompensationFlow, true},
-		{"Timeout Cascade", timeoutCascadeFlow, true},
+		// Traditional scenarios
+		{"Create Order", createOrderFlow, false, "traditional"},
+		{"Search & Browse", searchAndBrowseFlow, false, "traditional"},
+		{"User Login", userLoginFlow, false, "traditional"},
+		{"Failed Payment", failedPaymentFlow, true, "chaos"},
+		{"Bulk Notifications", bulkNotificationFlow, false, "traditional"},
+		{"Health Check", healthCheckFlow, false, "traditional"},
+		{"Inventory Sync", inventorySyncFlow, false, "traditional"},
+		{"Scheduled Report", scheduledReportFlow, false, "traditional"},
+		{"Stripe Webhook", stripeWebhookFlow, false, "traditional"},
+		{"Recommendations", recommendationFlow, false, "traditional"},
+		{"Add to Cart", addToCartFlow, false, "traditional"},
+		{"Full Checkout", fullCheckoutFlow, false, "traditional"},
+		{"Shipping Update", shippingUpdateFlow, false, "traditional"},
+		{"Saga Compensation", sagaCompensationFlow, true, "chaos"},
+		{"Timeout Cascade", timeoutCascadeFlow, true, "chaos"},
+		// AI agentic scenarios
+		{"RAG Search", ragSearchFlow, false, "ai"},
+		{"AI Chatbot", aiChatbotFlow, false, "ai"},
+		{"Content Moderation", contentModerationFlow, false, "ai"},
+		{"Multi-Step Agent", multiStepAgentFlow, false, "ai"},
+		{"Return/Refund", returnRefundFlow, false, "traditional"},
 	}
 	var scenarios []namedScenario
 	for _, s := range allScenarios {
 		if s.isError && errorMultiplier == 0 {
+			continue
+		}
+		if aiOnly && s.category != "ai" {
+			continue
+		}
+		if noAIBackends && s.category == "ai" {
 			continue
 		}
 		scenarios = append(scenarios, s)
@@ -261,7 +306,7 @@ func main() {
 				s := scenarios[rand.Intn(len(scenarios))]
 				sent++
 				if sent%50 == 0 {
-					fmt.Printf("[%s] %d traces sent  (%d services, %d pods)\n", time.Now().Format("15:04:05"), sent, len(tracerPool), len(pods))
+					fmt.Printf("[%s] %d traces sent  (%d services, %d pods, %d scenarios)\n", time.Now().Format("15:04:05"), sent, totalServices, len(pods), len(scenarios))
 				}
 				go s.fn(ctx)
 			}
@@ -2353,6 +2398,1045 @@ func randomOrderID() string {
 }
 
 func randomSearchTerm() string {
-	terms := []string{"widget", "dashboard", "monitor", "alert rules", "trace analysis", "service health"}
+	terms := []string{"widget", "dashboard", "monitor", "alert rules", "trace analysis", "service health",
+		"wireless keyboard", "USB-C hub", "laptop stand", "noise cancelling headphones", "ergonomic mouse"}
 	return terms[rand.Intn(len(terms))]
+}
+
+func randomSessionID() string {
+	return fmt.Sprintf("sess_%s", randomHex(12))
+}
+
+func randomHex(n int) string {
+	b := make([]byte, (n+1)/2)
+	cryptorand.Read(b)
+	return hex.EncodeToString(b)[:n]
+}
+
+// ─── GenAI Helper Functions ───────────────────────────────────────────────────
+// These produce spans matching Microsoft Semantic Kernel / Agent Framework OTel
+// output and OTel GenAI Semantic Conventions v1.38.0.
+
+// chatSpan creates a "chat {model}" span on llm-gateway with standard gen_ai attributes.
+func chatSpan(ctx context.Context, model string, inputTokens, outputTokens int, finishReasons ...string) (context.Context, trace.Span) {
+	if len(finishReasons) == 0 {
+		finishReasons = []string{"stop"}
+	}
+	ctx, span := tracer("llm-gateway").Start(ctx, "chat "+model,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chat"),
+			attribute.String("gen_ai.system", "openai"),
+			attribute.String("gen_ai.provider.name", "openai"),
+			attribute.String("gen_ai.request.model", model),
+			attribute.String("gen_ai.response.model", model),
+			attribute.Int("gen_ai.usage.input_tokens", inputTokens),
+			attribute.Int("gen_ai.usage.output_tokens", outputTokens),
+			attribute.StringSlice("gen_ai.response.finish_reasons", finishReasons),
+			attribute.String("gen_ai.response.id", "chatcmpl-"+randomHex(24)),
+			attribute.String("http.method", "POST"),
+			attribute.String("http.url", "https://api.openai.com/v1/chat/completions"),
+			attribute.String("peer.service", "openai-api"),
+			attribute.Int("http.status_code", 200),
+		),
+	)
+	return ctx, span
+}
+
+// embeddingSpan creates an "embedding {model}" span for text-to-vector operations.
+func embeddingSpan(ctx context.Context, model string, inputTokens, dimensions int) (context.Context, trace.Span) {
+	ctx, span := tracer("llm-gateway").Start(ctx, "embedding "+model,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "embedding"),
+			attribute.String("gen_ai.system", "openai"),
+			attribute.String("gen_ai.provider.name", "openai"),
+			attribute.String("gen_ai.request.model", model),
+			attribute.String("gen_ai.response.model", model),
+			attribute.Int("gen_ai.usage.input_tokens", inputTokens),
+			attribute.Int("gen_ai.embeddings.dimension.count", dimensions),
+			attribute.StringSlice("gen_ai.request.encoding_formats", []string{"float"}),
+			attribute.String("gen_ai.response.id", "embd-"+randomHex(24)),
+			attribute.String("http.method", "POST"),
+			attribute.String("http.url", "https://api.openai.com/v1/embeddings"),
+			attribute.String("peer.service", "openai-api"),
+			attribute.Int("http.status_code", 200),
+		),
+	)
+	return ctx, span
+}
+
+// agentSpan creates an "invoke_agent {name}" span matching MS Agent Framework output.
+func agentSpan(ctx context.Context, agentName, agentID, description, sessionID string) (context.Context, trace.Span) {
+	ctx, span := tracer("ai-agent-service").Start(ctx, "invoke_agent "+agentName,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "invoke_agent"),
+			attribute.String("gen_ai.system", "openai"),
+			attribute.String("gen_ai.provider.name", "openai"),
+			attribute.String("gen_ai.agent.id", agentID),
+			attribute.String("gen_ai.agent.name", agentName),
+			attribute.String("gen_ai.agent.description", description),
+			attribute.String("gen_ai.agent.version", "1.0.0"),
+			attribute.String("gen_ai.conversation.id", sessionID),
+		),
+	)
+	return ctx, span
+}
+
+// toolSpan creates an "execute_tool {name}" span for agent tool calls.
+func toolSpan(ctx context.Context, toolName, toolDescription string) (context.Context, trace.Span) {
+	ctx, span := tracer("ai-agent-service").Start(ctx, "execute_tool "+toolName,
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "execute_tool"),
+			attribute.String("gen_ai.tool.name", toolName),
+			attribute.String("gen_ai.tool.type", "function"),
+			attribute.String("gen_ai.tool.call.id", "call_"+randomHex(24)),
+			attribute.String("gen_ai.tool.description", toolDescription),
+		),
+	)
+	return ctx, span
+}
+
+// ─── AI Exception Arrays ─────────────────────────────────────────────────────
+
+var llmExceptions = []exceptionInfo{
+	{
+		"OpenAI.RateLimitError",
+		"rate_limit_exceeded: Rate limit reached for gpt-4o in organization org-abc123 on tokens per min (TPM). Limit: 90000, Used: 89742, Requested: 1200.",
+		`OpenAI.RateLimitError: rate_limit_exceeded: Rate limit reached for gpt-4o in organization org-abc123 on tokens per min (TPM). Limit: 90000, Used: 89742, Requested: 1200.
+   at LlmGateway.Clients.OpenAIClient.ChatCompletionAsync(ChatRequest request) in /src/LlmGateway/Clients/OpenAIClient.cs:line 87
+   at LlmGateway.Services.ModelRouter.RouteRequestAsync(ModelRequest req) in /src/LlmGateway/Services/ModelRouter.cs:line 134`,
+	},
+	{
+		"OpenAI.ContextLengthExceeded",
+		"context_length_exceeded: This model's maximum context length is 128000 tokens. However, your messages resulted in 129341 tokens.",
+		`OpenAI.ContextLengthExceeded: context_length_exceeded: This model's maximum context length is 128000 tokens. However, your messages resulted in 129341 tokens.
+   at LlmGateway.Clients.OpenAIClient.ChatCompletionAsync(ChatRequest request) in /src/LlmGateway/Clients/OpenAIClient.cs:line 92
+   at LlmGateway.Middleware.TokenBudgetGuard.ValidateAsync(ChatRequest req) in /src/LlmGateway/Middleware/TokenBudgetGuard.cs:line 55`,
+	},
+	{
+		"OpenAI.APITimeoutError",
+		"Request timed out after 30000ms waiting for response from gpt-4o",
+		`OpenAI.APITimeoutError: Request timed out after 30000ms waiting for response from gpt-4o
+   at LlmGateway.Clients.OpenAIClient.ChatCompletionAsync(ChatRequest request) in /src/LlmGateway/Clients/OpenAIClient.cs:line 103
+   at System.Net.Http.HttpClient.SendAsync(HttpRequestMessage request, CancellationToken ct) in /_/src/System.Net.Http/HttpClient.cs:line 582`,
+	},
+	{
+		"OpenAI.ContentFilterError",
+		"content_filter: The response was filtered due to the prompt triggering Azure OpenAI's content management policy",
+		`OpenAI.ContentFilterError: content_filter: The response was filtered due to the prompt triggering Azure OpenAI's content management policy
+   at LlmGateway.Clients.OpenAIClient.ChatCompletionAsync(ChatRequest request) in /src/LlmGateway/Clients/OpenAIClient.cs:line 96
+   at LlmGateway.Services.SafetyFilter.CheckResponseAsync(ChatResponse resp) in /src/LlmGateway/Services/SafetyFilter.cs:line 71`,
+	},
+}
+
+var vectorDBExceptions = []exceptionInfo{
+	{
+		"Qdrant.QdrantException",
+		"Collection 'product-embeddings' not found",
+		`Qdrant.QdrantException: Collection 'product-embeddings' not found
+   at VectorDbService.Clients.QdrantClient.SearchAsync(SearchRequest req) in /src/VectorDbService/Clients/QdrantClient.cs:line 63
+   at VectorDbService.Services.VectorSearchService.SimilaritySearch(String collection, float[] vector, Int32 topK) in /src/VectorDbService/Services/VectorSearchService.cs:line 41`,
+	},
+	{
+		"Qdrant.TimeoutException",
+		"Timeout waiting for search results after 5000ms on collection 'product-embeddings'",
+		`Qdrant.TimeoutException: Timeout waiting for search results after 5000ms on collection 'product-embeddings'
+   at Qdrant.Client.QdrantGrpcClient.SearchAsync(SearchPoints request, CancellationToken ct) in /src/VectorDbService/Clients/QdrantClient.cs:line 78
+   at System.Threading.Tasks.Task.WaitAsync(TimeSpan timeout) in /_/src/System.Threading/Tasks/Task.cs:line 3847`,
+	},
+	{
+		"Qdrant.DimensionMismatch",
+		"Dimension mismatch: expected 1536, got 768 for collection 'product-embeddings'",
+		`Qdrant.DimensionMismatch: Dimension mismatch: expected 1536, got 768 for collection 'product-embeddings'
+   at VectorDbService.Clients.QdrantClient.UpsertAsync(UpsertRequest req) in /src/VectorDbService/Clients/QdrantClient.cs:line 95
+   at VectorDbService.Services.VectorIndexService.UpsertBatch(String collection, List<VectorPoint> points) in /src/VectorDbService/Services/VectorIndexService.cs:line 57`,
+	},
+}
+
+var agentExceptions = []exceptionInfo{
+	{
+		"Agent.MaxIterationsExceeded",
+		"Agent reached maximum iteration limit (5) without completing goal",
+		`Agent.MaxIterationsExceeded: Agent reached maximum iteration limit (5) without completing goal
+   at AiAgentService.Orchestrator.AgentLoop.ExecuteAsync(AgentTask task, Int32 maxIterations) in /src/AiAgentService/Orchestrator/AgentLoop.cs:line 112
+   at AiAgentService.Services.AgentService.ProcessTaskAsync(String taskId) in /src/AiAgentService/Services/AgentService.cs:line 67`,
+	},
+	{
+		"Agent.HallucinatedToolCall",
+		"LLM requested tool 'get_competitor_price' which is not in the tool registry",
+		`Agent.HallucinatedToolCall: LLM requested tool 'get_competitor_price' which is not in the tool registry
+   at AiAgentService.Orchestrator.ToolDispatcher.DispatchAsync(ToolCall call) in /src/AiAgentService/Orchestrator/ToolDispatcher.cs:line 45
+   at AiAgentService.Orchestrator.AgentLoop.ExecuteToolStep(ToolCall call) in /src/AiAgentService/Orchestrator/AgentLoop.cs:line 89`,
+	},
+	{
+		"Agent.TokenBudgetExceeded",
+		"Agent token budget of 10000 exceeded after 3 iterations (used: 10247 input + 1893 output = 12140 total)",
+		`Agent.TokenBudgetExceeded: Agent token budget of 10000 exceeded after 3 iterations (used: 10247 input + 1893 output = 12140 total)
+   at AiAgentService.Middleware.TokenBudgetGuard.CheckBudget(AgentContext ctx) in /src/AiAgentService/Middleware/TokenBudgetGuard.cs:line 38
+   at AiAgentService.Orchestrator.AgentLoop.ExecuteAsync(AgentTask task, Int32 maxIterations) in /src/AiAgentService/Orchestrator/AgentLoop.cs:line 78`,
+	},
+	{
+		"Agent.CircularPlanDetected",
+		"Agent produced identical plan in consecutive iterations 3 and 4 -- loop detected",
+		`Agent.CircularPlanDetected: Agent produced identical plan in consecutive iterations 3 and 4 -- loop detected
+   at AiAgentService.Orchestrator.LoopDetector.CheckForCycle(List<AgentStep> steps) in /src/AiAgentService/Orchestrator/LoopDetector.cs:line 29
+   at AiAgentService.Orchestrator.AgentLoop.ExecuteAsync(AgentTask task, Int32 maxIterations) in /src/AiAgentService/Orchestrator/AgentLoop.cs:line 95`,
+	},
+}
+
+var moderationExceptions = []exceptionInfo{
+	{
+		"Moderation.ContentBlocked",
+		"Content blocked: safety score 0.92 exceeds threshold 0.70 in category 'hate_speech'",
+		`Moderation.ContentBlocked: Content blocked: safety score 0.92 exceeds threshold 0.70 in category 'hate_speech'
+   at ContentModerationService.Classifiers.SafetyClassifier.ScoreAsync(String content) in /src/ContentModerationService/Classifiers/SafetyClassifier.cs:line 52
+   at ContentModerationService.Services.ModerationPipeline.ProcessAsync(ModerationRequest req) in /src/ContentModerationService/Services/ModerationPipeline.cs:line 34`,
+	},
+	{
+		"Moderation.PIIDetected",
+		"PII detected in user content: email address pattern found at position 142",
+		`Moderation.PIIDetected: PII detected in user content: email address pattern found at position 142
+   at ContentModerationService.Classifiers.PIIDetector.ScanAsync(String content) in /src/ContentModerationService/Classifiers/PIIDetector.cs:line 67
+   at ContentModerationService.Services.ModerationPipeline.ProcessAsync(ModerationRequest req) in /src/ContentModerationService/Services/ModerationPipeline.cs:line 41`,
+	},
+}
+
+// ─── AI-01: Semantic Search with RAG ──────────────────────────────────────────
+// web-frontend -> api-gateway -> auth-service -> embedding-service ->
+// llm-gateway [embed] -> vector-db-service -> llm-gateway [rerank] ->
+// cache-service -> analytics-service
+func ragSearchFlow(ctx context.Context) {
+	query := randomSearchTerm()
+
+	ctx, ui := tracer("web-frontend").Start(ctx, "SearchProducts",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "GET"),
+			attribute.String("http.url", "/api/v2/search/ai"),
+			attribute.String("browser.page", "/search"),
+			attribute.String("search.query", query),
+		),
+	)
+	defer ui.End()
+	sleep(2, 5)
+
+	ctx, gateway := tracer("api-gateway").Start(ctx, "GET /api/v2/search/ai",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("http.method", "GET"),
+			attribute.String("http.route", "/api/v2/search/ai"),
+			attribute.Int("http.status_code", 200),
+			attribute.String("search.query", query),
+		),
+	)
+	defer gateway.End()
+	sleep(3, 10)
+
+	// Auth check
+	_, auth := tracer("auth-service").Start(ctx, "ValidateToken",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "grpc"),
+			attribute.String("rpc.service", "AuthService"),
+			attribute.String("rpc.method", "ValidateToken"),
+		),
+	)
+	sleep(3, 10)
+	auth.End()
+
+	// Generate query embedding
+	_, embedSvc := tracer("embedding-service").Start(ctx, "GenerateQueryEmbedding",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("embedding.input_type", "query"),
+			attribute.Int("embedding.text_length", len(query)),
+		),
+	)
+	sleep(5, 15)
+
+	inputTokens := 12 + rand.Intn(36)
+	_, embedLLM := embeddingSpan(ctx, "text-embedding-3-small", inputTokens, 1536)
+	sleep(80, 250)
+
+	// Error: LLM rate limit -> fallback to text search
+	if errorChance(0.05) {
+		exc := randomException(llmExceptions)
+		recordException(embedLLM, exc.excType, exc.message, exc.stacktrace)
+		embedLLM.End()
+		embedSvc.End()
+
+		// Fallback to Elasticsearch text search
+		_, esFallback := tracer("search-service").Start(ctx, "Elasticsearch Query (fallback)",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("db.system", "elasticsearch"),
+				attribute.String("db.operation", "search"),
+				attribute.Bool("search.fallback", true),
+				attribute.String("search.fallback_reason", "llm_rate_limit"),
+				attribute.Int("search.results_count", rand.Intn(30)),
+			),
+		)
+		sleep(30, 120)
+		esFallback.End()
+		return
+	}
+	embedLLM.End()
+	embedSvc.End()
+
+	// Vector similarity search
+	resultsReturned := 15 + rand.Intn(6)
+	_, vecSearch := tracer("vector-db-service").Start(ctx, "retrieve product-embeddings",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "retrieve"),
+			attribute.String("gen_ai.data_source.id", "product-embeddings"),
+			attribute.String("db.system", "qdrant"),
+			attribute.String("db.operation", "search"),
+			attribute.Int("vector_db.top_k", 20),
+			attribute.Int("vector_db.results_returned", resultsReturned),
+			attribute.String("vector_db.similarity_metric", "cosine"),
+		),
+	)
+	sleep(15, 60)
+	if errorChance(0.03) {
+		exc := randomException(vectorDBExceptions)
+		recordException(vecSearch, exc.excType, exc.message, exc.stacktrace)
+	}
+	vecSearch.End()
+
+	// LLM reranking
+	rerankInputTokens := 800 + rand.Intn(1600)
+	rerankOutputTokens := 150 + rand.Intn(250)
+	_, rerank := chatSpan(ctx, "gpt-4o-mini", rerankInputTokens, rerankOutputTokens)
+	rerank.SetAttributes(
+		attribute.Float64("gen_ai.request.temperature", 0.0),
+		attribute.Int("gen_ai.request.max_tokens", 512),
+	)
+	sleep(400, 1800)
+	// Occasional truncation
+	if errorChance(0.02) {
+		rerank.SetAttributes(attribute.StringSlice("gen_ai.response.finish_reasons", []string{"length"}))
+		rerank.AddEvent("warning", trace.WithAttributes(
+			attribute.String("message", "LLM reranking response truncated"),
+		))
+	}
+	rerank.End()
+
+	// Cache result
+	_, cacheSet := tracer("cache-service").Start(ctx, "Redis SET search-cache",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "SET"),
+			attribute.Int("db.redis.ttl_seconds", 300),
+		),
+	)
+	sleep(1, 3)
+	cacheSet.End()
+
+	// Analytics
+	_, analytics := tracer("analytics-service").Start(ctx, "TrackEvent semantic_search.complete",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", "analytics.events"),
+			attribute.String("analytics.event_type", "semantic_search.complete"),
+			attribute.Int("search.results_count", resultsReturned),
+		),
+	)
+	sleep(2, 5)
+	analytics.End()
+}
+
+// ─── AI-02: AI Chatbot with Tool Use ──────────────────────────────────────────
+// web-frontend -> api-gateway -> auth-service -> ai-agent-service ->
+// llm-gateway [plan] -> {order-service, search-service, shipping-service} [parallel] ->
+// llm-gateway [synthesize] -> cache-service
+func aiChatbotFlow(ctx context.Context) {
+	sessionID := randomSessionID()
+	userID := randomUserID()
+
+	ctx, ui := tracer("web-frontend").Start(ctx, "SendChatMessage",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.url", "/api/v2/chat"),
+			attribute.String("browser.page", "/support/chat"),
+			attribute.String("user.session_id", userID),
+		),
+	)
+	defer ui.End()
+	sleep(2, 5)
+
+	ctx, gateway := tracer("api-gateway").Start(ctx, "POST /api/v2/chat",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.route", "/api/v2/chat"),
+			attribute.Int("http.status_code", 200),
+		),
+	)
+	defer gateway.End()
+	sleep(3, 8)
+
+	// Auth
+	_, auth := tracer("auth-service").Start(ctx, "ValidateToken",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "grpc"),
+			attribute.String("rpc.service", "AuthService"),
+			attribute.String("rpc.method", "ValidateToken"),
+		),
+	)
+	sleep(3, 8)
+	auth.End()
+
+	// Agent invocation
+	ctx, agent := agentSpan(ctx, "CustomerSupportAgent", "csa-001", "Handles customer inquiries about orders and products", sessionID)
+	defer agent.End()
+	sleep(5, 15)
+
+	// Planning step — LLM decides which tools to call
+	planInputTokens := 200 + rand.Intn(600)
+	planOutputTokens := 50 + rand.Intn(150)
+	_, plan := chatSpan(ctx, "gpt-4o", planInputTokens, planOutputTokens, "tool_calls")
+	plan.SetAttributes(
+		attribute.Int("gen_ai.request.max_tokens", 1024),
+		attribute.Float64("gen_ai.request.temperature", 0.1),
+	)
+	sleep(300, 800)
+
+	// Error: hallucinated tool call
+	if errorChance(0.04) {
+		exc := randomException(agentExceptions)
+		recordException(plan, exc.excType, exc.message, exc.stacktrace)
+		plan.End()
+		// Fallback response
+		_, fallback := chatSpan(ctx, "gpt-4o", 100, 80)
+		fallback.SetAttributes(attribute.String("gen_ai.request.max_tokens", "256"))
+		sleep(200, 500)
+		fallback.End()
+		return
+	}
+	plan.End()
+
+	// Fan-out tool calls in parallel
+	tools := make(chan struct{}, 3)
+
+	// Tool 1: Get order status
+	go func() {
+		_, tool := toolSpan(ctx, "get_order_status", "Get the status of a customer order")
+		sleep(5, 15)
+		_, orderLookup := tracer("order-service").Start(ctx, "GetOrderByID",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("order.id", randomOrderID()),
+				attribute.String("rpc.system", "grpc"),
+			),
+		)
+		sleep(10, 30)
+		orderLookup.End()
+		tool.End()
+		tools <- struct{}{}
+	}()
+
+	// Tool 2: Search products
+	go func() {
+		_, tool := toolSpan(ctx, "search_products", "Search product catalog by query")
+		sleep(5, 10)
+		_, search := tracer("search-service").Start(ctx, "Elasticsearch Query",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("db.system", "elasticsearch"),
+				attribute.String("db.operation", "search"),
+				attribute.Int("search.results_count", rand.Intn(20)),
+			),
+		)
+		sleep(20, 60)
+		search.End()
+		tool.End()
+		tools <- struct{}{}
+	}()
+
+	// Tool 3: Get tracking info
+	go func() {
+		_, tool := toolSpan(ctx, "get_tracking", "Get shipping tracking information")
+		sleep(5, 10)
+		_, tracking := tracer("shipping-service").Start(ctx, "GetTrackingInfo",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("shipping.tracking_number", fmt.Sprintf("1Z%s", randomHex(16))),
+				attribute.String("rpc.system", "grpc"),
+			),
+		)
+		sleep(15, 40)
+		tracking.End()
+		tool.End()
+		tools <- struct{}{}
+	}()
+
+	for i := 0; i < 3; i++ {
+		<-tools
+	}
+
+	// Synthesize response with tool results
+	synthInputTokens := 400 + rand.Intn(1200)
+	synthOutputTokens := 100 + rand.Intn(300)
+	_, synth := chatSpan(ctx, "gpt-4o", synthInputTokens, synthOutputTokens)
+	synth.SetAttributes(
+		attribute.Int("gen_ai.request.max_tokens", 1024),
+		attribute.Float64("gen_ai.request.temperature", 0.3),
+	)
+	sleep(500, 1500)
+	synth.End()
+
+	// Update agent span with total token usage
+	agent.SetAttributes(
+		attribute.Int("gen_ai.usage.input_tokens", planInputTokens+synthInputTokens),
+		attribute.Int("gen_ai.usage.output_tokens", planOutputTokens+synthOutputTokens),
+	)
+
+	// Cache conversation
+	_, cacheSet := tracer("cache-service").Start(ctx, "Redis SET conversation:session",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "SET"),
+			attribute.String("db.redis.key", "conversation:"+sessionID),
+			attribute.Int("db.redis.ttl_seconds", 1800),
+		),
+	)
+	sleep(1, 3)
+	cacheSet.End()
+}
+
+// ─── AI-10: Content Moderation Pipeline ───────────────────────────────────────
+// web-frontend -> api-gateway -> auth-service -> content-moderation-service ->
+// llm-gateway [safety] || llm-gateway [spam] -> {product-service | notification-service | [block]}
+func contentModerationFlow(ctx context.Context) {
+	ctx, ui := tracer("web-frontend").Start(ctx, "SubmitReview",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.url", "/api/v2/reviews"),
+			attribute.String("browser.page", "/product/review"),
+		),
+	)
+	defer ui.End()
+	sleep(2, 5)
+
+	ctx, gateway := tracer("api-gateway").Start(ctx, "POST /api/v2/reviews",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.route", "/api/v2/reviews"),
+		),
+	)
+	defer gateway.End()
+	sleep(3, 8)
+
+	// Auth
+	_, auth := tracer("auth-service").Start(ctx, "ValidateToken",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "grpc"),
+			attribute.String("rpc.service", "AuthService"),
+		),
+	)
+	sleep(3, 8)
+	auth.End()
+
+	// Content moderation pipeline
+	textLength := 50 + rand.Intn(1950)
+	safetyScore := rand.Float64()
+	spamScore := rand.Float64() * 0.5
+
+	// Determine decision based on scores
+	decision := "approve"
+	guardrailAction := "pass"
+	if safetyScore > 0.7 || errorChance(0.08) {
+		decision = "block"
+		guardrailAction = "block"
+		safetyScore = 0.7 + rand.Float64()*0.3
+	} else if safetyScore > 0.4 {
+		decision = "flag"
+		guardrailAction = "flag_for_review"
+	}
+
+	ctx, moderation := tracer("content-moderation-service").Start(ctx, "ModerateContent",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("moderation.content_type", "review_text"),
+			attribute.Int("moderation.text_length", textLength),
+			attribute.String("moderation.decision", decision),
+			attribute.String("moderation.policy_version", "v2.3"),
+			attribute.Float64("moderation.safety_score", safetyScore),
+			attribute.Bool("guardrail.triggered", safetyScore > 0.7),
+			attribute.String("guardrail.action", guardrailAction),
+			attribute.String("guardrail.name", "content_safety_v2"),
+		),
+	)
+	defer moderation.End()
+	sleep(5, 15)
+
+	// Parallel LLM classifiers
+	classifiers := make(chan struct{}, 2)
+
+	// Safety classifier
+	go func() {
+		_, safety := chatSpan(ctx, "gpt-4o-mini", 100+rand.Intn(200), 30+rand.Intn(50))
+		safety.SetAttributes(
+			attribute.Float64("gen_ai.request.temperature", 0.0),
+			attribute.Int("gen_ai.request.max_tokens", 64),
+			attribute.String("gen_ai.evaluation.name", "content_safety"),
+			attribute.Float64("gen_ai.evaluation.score.value", safetyScore),
+		)
+		sleep(200, 600)
+		safety.End()
+		classifiers <- struct{}{}
+	}()
+
+	// Spam classifier
+	go func() {
+		_, spam := chatSpan(ctx, "gpt-4o-mini", 80+rand.Intn(150), 20+rand.Intn(30))
+		spam.SetAttributes(
+			attribute.Float64("gen_ai.request.temperature", 0.0),
+			attribute.Int("gen_ai.request.max_tokens", 32),
+			attribute.String("gen_ai.evaluation.name", "spam_detection"),
+			attribute.Float64("gen_ai.evaluation.score.value", spamScore),
+		)
+		sleep(150, 500)
+		spam.End()
+		classifiers <- struct{}{}
+	}()
+
+	for i := 0; i < 2; i++ {
+		<-classifiers
+	}
+
+	// Branch based on decision
+	switch decision {
+	case "approve":
+		// Publish review
+		_, publish := tracer("product-service").Start(ctx, "PublishReview",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("review.status", "published"),
+				attribute.String("product.id", fmt.Sprintf("prod_%06d", rand.Intn(999999))),
+			),
+		)
+		sleep(10, 30)
+		publish.End()
+
+		gateway.SetAttributes(attribute.Int("http.status_code", 201))
+
+	case "flag":
+		// Queue for human review
+		_, queue := tracer("notification-service").Start(ctx, "QueueForReview",
+			trace.WithSpanKind(trace.SpanKindProducer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "rabbitmq"),
+				attribute.String("messaging.operation", "publish"),
+				attribute.String("messaging.destination", "moderation.review_queue"),
+				attribute.String("review.status", "flagged"),
+			),
+		)
+		sleep(3, 8)
+		queue.End()
+
+		gateway.SetAttributes(attribute.Int("http.status_code", 202))
+
+	case "block":
+		// Content blocked
+		exc := randomException(moderationExceptions)
+		recordException(moderation, exc.excType, exc.message, exc.stacktrace)
+
+		gateway.SetAttributes(attribute.Int("http.status_code", 422))
+		gateway.SetStatus(codes.Error, "content blocked by moderation")
+	}
+}
+
+// ─── AI-11: Multi-Step Agent ──────────────────────────────────────────────────
+// api-gateway -> ai-agent-service -> [plan -> act -> reflect] x 3-5 iterations
+// Each iteration: llm-gateway [plan] -> execute_tool -> llm-gateway [reflect]
+func multiStepAgentFlow(ctx context.Context) {
+	sessionID := randomSessionID()
+
+	ctx, ui := tracer("web-frontend").Start(ctx, "SubmitAgentTask",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.url", "/api/v2/agent/task"),
+			attribute.String("browser.page", "/agent/task"),
+		),
+	)
+	defer ui.End()
+	sleep(2, 5)
+
+	ctx, gateway := tracer("api-gateway").Start(ctx, "POST /api/v2/agent/task",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.route", "/api/v2/agent/task"),
+			attribute.Int("http.status_code", 200),
+		),
+	)
+	defer gateway.End()
+	sleep(3, 8)
+
+	// Auth
+	_, auth := tracer("auth-service").Start(ctx, "ValidateToken",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "grpc"),
+			attribute.String("rpc.service", "AuthService"),
+		),
+	)
+	sleep(3, 8)
+	auth.End()
+
+	// Agent invocation
+	ctx, agent := agentSpan(ctx, "ResearchAgent", "ra-001", "Multi-step research agent that gathers data and produces reports", sessionID)
+	defer agent.End()
+
+	totalInputTokens := 0
+	totalOutputTokens := 0
+	iterations := 3 + rand.Intn(3) // 3-5 iterations
+
+	toolRegistry := []struct{ name, desc string }{
+		{"search_products", "Search product catalog"},
+		{"get_order", "Get order details by ID"},
+		{"get_product", "Get product details"},
+		{"check_inventory", "Check product inventory levels"},
+		{"get_user", "Get user profile"},
+		{"search_reviews", "Search product reviews"},
+	}
+
+	for i := 0; i < iterations; i++ {
+		iterCtx := ctx
+
+		// Plan step
+		planInput := 200 + i*150 + rand.Intn(300) // grows with context
+		planOutput := 50 + rand.Intn(100)
+		totalInputTokens += planInput
+		totalOutputTokens += planOutput
+
+		_, plan := chatSpan(iterCtx, "gpt-4o", planInput, planOutput, "tool_calls")
+		plan.SetAttributes(
+			attribute.Int("gen_ai.request.max_tokens", 1024),
+			attribute.Float64("gen_ai.request.temperature", 0.2),
+			attribute.Int("agent.iteration", i+1),
+			attribute.String("agent.phase", "plan"),
+		)
+		sleep(300, 800)
+
+		// Error: token budget exceeded
+		if errorChance(0.03) && i >= 2 {
+			exc := agentExceptions[2] // TokenBudgetExceeded
+			recordException(plan, exc.excType, exc.message, exc.stacktrace)
+			plan.End()
+			agent.SetStatus(codes.Error, "token budget exceeded")
+			break
+		}
+		plan.End()
+
+		// Act step — execute selected tool
+		tool := toolRegistry[rand.Intn(len(toolRegistry))]
+		_, toolExec := toolSpan(iterCtx, tool.name, tool.desc)
+		sleep(10, 30)
+
+		// Tool calls a real backend service
+		switch tool.name {
+		case "search_products", "search_reviews":
+			_, search := tracer("search-service").Start(iterCtx, "Elasticsearch Query",
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("db.system", "elasticsearch"),
+					attribute.String("db.operation", "search"),
+					attribute.Int("search.results_count", rand.Intn(30)),
+				),
+			)
+			sleep(20, 60)
+			search.End()
+		case "get_order":
+			_, order := tracer("order-service").Start(iterCtx, "GetOrderByID",
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("order.id", randomOrderID()),
+					attribute.String("rpc.system", "grpc"),
+				),
+			)
+			sleep(10, 30)
+			order.End()
+		case "get_product":
+			_, product := tracer("product-service").Start(iterCtx, "GetProductByID",
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("product.id", fmt.Sprintf("prod_%06d", rand.Intn(999999))),
+					attribute.String("rpc.system", "grpc"),
+				),
+			)
+			sleep(8, 25)
+			product.End()
+		case "check_inventory":
+			_, inv := tracer("inventory-service").Start(iterCtx, "CheckStock",
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("rpc.system", "grpc"),
+					attribute.Int("inventory.quantity", rand.Intn(500)),
+				),
+			)
+			sleep(10, 25)
+			inv.End()
+		case "get_user":
+			_, user := tracer("user-service").Start(iterCtx, "GetUserProfile",
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("user.id", randomUserID()),
+					attribute.String("rpc.system", "grpc"),
+				),
+			)
+			sleep(8, 20)
+			user.End()
+		}
+		toolExec.End()
+
+		// Reflect step — LLM evaluates tool results and decides next step
+		reflectInput := 300 + i*200 + rand.Intn(400)
+		reflectOutput := 80 + rand.Intn(120)
+		totalInputTokens += reflectInput
+		totalOutputTokens += reflectOutput
+
+		finishReason := "tool_calls"
+		if i == iterations-1 {
+			finishReason = "stop" // final iteration produces answer
+		}
+		_, reflect := chatSpan(iterCtx, "gpt-4o", reflectInput, reflectOutput, finishReason)
+		reflect.SetAttributes(
+			attribute.Float64("gen_ai.request.temperature", 0.2),
+			attribute.Int("agent.iteration", i+1),
+			attribute.String("agent.phase", "reflect"),
+		)
+		sleep(400, 1200)
+		reflect.End()
+	}
+
+	// Set total token usage on agent span
+	agent.SetAttributes(
+		attribute.Int("gen_ai.usage.input_tokens", totalInputTokens),
+		attribute.Int("gen_ai.usage.output_tokens", totalOutputTokens),
+	)
+
+	// Cache agent result
+	_, cacheSet := tracer("cache-service").Start(ctx, "Redis SET agent:result",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "SET"),
+			attribute.Int("db.redis.ttl_seconds", 600),
+		),
+	)
+	sleep(1, 3)
+	cacheSet.End()
+
+	// Analytics
+	_, analytics := tracer("analytics-service").Start(ctx, "TrackEvent agent.task_complete",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", "analytics.events"),
+			attribute.String("analytics.event_type", "agent.task_complete"),
+			attribute.Int("agent.total_iterations", iterations),
+			attribute.Int("agent.total_input_tokens", totalInputTokens),
+			attribute.Int("agent.total_output_tokens", totalOutputTokens),
+		),
+	)
+	sleep(2, 5)
+	analytics.End()
+}
+
+// ─── T-03: Return/Refund ─────────────────────────────────────────────────────
+// web-frontend -> api-gateway -> auth-service -> order-service [lookup] ->
+// parallel [payment-service refund, inventory-service restock] ->
+// notification-service -> email-service -> analytics-service
+func returnRefundFlow(ctx context.Context) {
+	orderID := randomOrderID()
+
+	ctx, ui := tracer("web-frontend").Start(ctx, "RequestReturn",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.url", "/api/v2/returns"),
+			attribute.String("browser.page", "/orders/return"),
+			attribute.String("order.id", orderID),
+		),
+	)
+	defer ui.End()
+	sleep(2, 5)
+
+	ctx, gateway := tracer("api-gateway").Start(ctx, "POST /api/v2/returns",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("http.route", "/api/v2/returns"),
+			attribute.Int("http.status_code", 200),
+		),
+	)
+	defer gateway.End()
+	sleep(5, 15)
+
+	// Auth
+	_, auth := tracer("auth-service").Start(ctx, "ValidateToken",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "grpc"),
+			attribute.String("rpc.service", "AuthService"),
+		),
+	)
+	sleep(3, 8)
+	auth.End()
+
+	// Lookup order
+	ctx2, orderLookup := tracer("order-service").Start(ctx, "GetOrderForReturn",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("order.id", orderID),
+			attribute.String("order.status", "delivered"),
+		),
+	)
+	sleep(10, 25)
+
+	_, dbLookup := tracer("order-service").Start(ctx2, "SELECT orders WHERE id = $1",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.name", "orders_db"),
+		),
+	)
+	sleep(5, 15)
+	dbLookup.End()
+
+	// Update order status
+	_, dbUpdate := tracer("order-service").Start(ctx2, "UPDATE orders SET status = 'return_initiated'",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.name", "orders_db"),
+		),
+	)
+	sleep(5, 15)
+	dbUpdate.End()
+	orderLookup.End()
+
+	// Parallel: refund + restock
+	refundDone := make(chan struct{}, 2)
+	refundAmount := 50 + rand.Float64()*500
+
+	// Refund payment
+	go func() {
+		ctx3, refund := tracer("payment-service").Start(ctx, "ProcessRefund",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("order.id", orderID),
+				attribute.String("payment.provider", "stripe"),
+				attribute.Float64("payment.refund_amount", refundAmount),
+			),
+		)
+		sleep(15, 40)
+
+		_, stripeRefund := tracer("payment-service").Start(ctx3, "POST https://api.stripe.com/v1/refunds",
+			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(
+				attribute.String("http.method", "POST"),
+				attribute.String("http.url", "https://api.stripe.com/v1/refunds"),
+				attribute.String("peer.service", "stripe-api"),
+				attribute.Int("http.status_code", 200),
+			),
+		)
+		sleep(80, 250)
+		stripeRefund.End()
+		refund.End()
+		refundDone <- struct{}{}
+	}()
+
+	// Restock inventory
+	go func() {
+		ctx3, restock := tracer("inventory-service").Start(ctx, "RestockItems",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				attribute.String("order.id", orderID),
+				attribute.Int("inventory.items", 1+rand.Intn(5)),
+			),
+		)
+		sleep(10, 30)
+
+		_, dbRestock := tracer("inventory-service").Start(ctx3, "UPDATE inventory SET quantity = quantity + $1",
+			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(
+				attribute.String("db.system", "postgresql"),
+				attribute.String("db.operation", "UPDATE"),
+				attribute.String("db.name", "inventory_db"),
+			),
+		)
+		sleep(5, 15)
+		dbRestock.End()
+
+		// Invalidate cache
+		_, cacheDel := tracer("cache-service").Start(ctx3, "Redis DEL inventory-cache",
+			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(
+				attribute.String("db.system", "redis"),
+				attribute.String("db.operation", "DEL"),
+			),
+		)
+		sleep(1, 3)
+		cacheDel.End()
+		restock.End()
+		refundDone <- struct{}{}
+	}()
+
+	for i := 0; i < 2; i++ {
+		<-refundDone
+	}
+
+	// Notification
+	ctx3, notify := tracer("notification-service").Start(ctx, "SendRefundConfirmation",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("notification.type", "refund_confirmation"),
+			attribute.String("order.id", orderID),
+		),
+	)
+	sleep(10, 25)
+
+	_, email := tracer("email-service").Start(ctx3, "SendEmail",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "POST"),
+			attribute.String("peer.service", "sendgrid"),
+			attribute.String("email.template", "refund_confirmation"),
+		),
+	)
+	sleep(25, 80)
+	email.End()
+	notify.End()
+
+	// Analytics
+	_, analytics := tracer("analytics-service").Start(ctx, "TrackEvent order.refunded",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", "analytics.events"),
+			attribute.String("analytics.event_type", "order.refunded"),
+			attribute.String("order.id", orderID),
+			attribute.Float64("refund.amount", refundAmount),
+		),
+	)
+	sleep(2, 5)
+	analytics.End()
 }
