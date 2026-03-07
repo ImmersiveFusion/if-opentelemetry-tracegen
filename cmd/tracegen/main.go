@@ -142,10 +142,6 @@ func main() {
 		log.Fatalf("invalid errors %d — must be 0-10", *errors)
 	}
 	errorMultiplier = float64(*errors) / 5.0 // 0=0x, 5=1x, 10=2x
-	errorLabels := []string{"none", "rare", "rare", "low", "low", "normal", "elevated", "high", "high", "extreme", "chaos"}
-	fmt.Printf("Endpoint: %s\n", endpoint)
-	fmt.Printf("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
-		*level, cfg.label, cfg.tickMs, cfg.burstMin, cfg.burstMax, errorLabels[*errors], *errors)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -245,8 +241,6 @@ func main() {
 		}
 	}()
 
-	fmt.Println("Generating distributed traces... (Ctrl+C to stop)")
-
 	ticker := time.NewTicker(time.Duration(cfg.tickMs) * time.Millisecond)
 	defer ticker.Stop()
 
@@ -293,6 +287,29 @@ func main() {
 		}
 		scenarios = append(scenarios, s)
 	}
+
+	errorLabels := []string{"none", "rare", "rare", "low", "low", "normal", "elevated", "high", "high", "extreme", "chaos"}
+	fmt.Println()
+	fmt.Printf("OpenTelemetry Trace Generator (%d services, %d pods, %d scenarios)\n", totalServices, len(pods), len(scenarios))
+	fmt.Printf("Endpoint: %s\n", endpoint)
+	fmt.Printf("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
+		*level, cfg.label, cfg.tickMs, cfg.burstMin, cfg.burstMax, errorLabels[*errors], *errors)
+	if aiOnly && noAIBackends {
+		fmt.Fprintln(os.Stderr, "Error: -ai-only and -no-ai-backends are mutually exclusive.")
+		os.Exit(1)
+	}
+	if aiOnly {
+		fmt.Println("Mode: AI-only (traditional scenarios excluded)")
+	}
+	if noAIBackends {
+		fmt.Println("Mode: No AI backends (AI services excluded)")
+	}
+	if len(scenarios) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: no scenarios available with current flags.")
+		os.Exit(1)
+	}
+	fmt.Println("Press Ctrl+C to stop.")
+	fmt.Println()
 
 	sent := 0
 	for {
@@ -1931,6 +1948,7 @@ func sagaCompensationFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("rpc.system", "grpc"),
 			attribute.String("rpc.service", "AuthService"),
+			attribute.String("rpc.method", "ValidateToken"),
 		),
 	)
 	sleep(2, 8)
@@ -2409,7 +2427,12 @@ func randomSessionID() string {
 
 func randomHex(n int) string {
 	b := make([]byte, (n+1)/2)
-	cryptorand.Read(b)
+	if _, err := cryptorand.Read(b); err != nil {
+		// Fallback to math/rand if crypto/rand fails
+		for i := range b {
+			b[i] = byte(rand.Intn(256))
+		}
+	}
 	return hex.EncodeToString(b)[:n]
 }
 
@@ -2427,7 +2450,6 @@ func chatSpan(ctx context.Context, model string, inputTokens, outputTokens int, 
 		trace.WithAttributes(
 			attribute.String("gen_ai.operation.name", "chat"),
 			attribute.String("gen_ai.system", "openai"),
-			attribute.String("gen_ai.provider.name", "openai"),
 			attribute.String("gen_ai.request.model", model),
 			attribute.String("gen_ai.response.model", model),
 			attribute.Int("gen_ai.usage.input_tokens", inputTokens),
@@ -2450,11 +2472,10 @@ func embeddingSpan(ctx context.Context, model string, inputTokens, dimensions in
 		trace.WithAttributes(
 			attribute.String("gen_ai.operation.name", "embedding"),
 			attribute.String("gen_ai.system", "openai"),
-			attribute.String("gen_ai.provider.name", "openai"),
 			attribute.String("gen_ai.request.model", model),
 			attribute.String("gen_ai.response.model", model),
 			attribute.Int("gen_ai.usage.input_tokens", inputTokens),
-			attribute.Int("gen_ai.embeddings.dimension.count", dimensions),
+			attribute.Int("gen_ai.embedding.dimension", dimensions),
 			attribute.StringSlice("gen_ai.request.encoding_formats", []string{"float"}),
 			attribute.String("gen_ai.response.id", "embd-"+randomHex(24)),
 			attribute.String("http.method", "POST"),
@@ -2469,11 +2490,10 @@ func embeddingSpan(ctx context.Context, model string, inputTokens, dimensions in
 // agentSpan creates an "invoke_agent {name}" span matching MS Agent Framework output.
 func agentSpan(ctx context.Context, agentName, agentID, description, sessionID string) (context.Context, trace.Span) {
 	ctx, span := tracer("ai-agent-service").Start(ctx, "invoke_agent "+agentName,
-		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("gen_ai.operation.name", "invoke_agent"),
 			attribute.String("gen_ai.system", "openai"),
-			attribute.String("gen_ai.provider.name", "openai"),
 			attribute.String("gen_ai.agent.id", agentID),
 			attribute.String("gen_ai.agent.name", agentName),
 			attribute.String("gen_ai.agent.description", description),
@@ -2816,7 +2836,7 @@ func aiChatbotFlow(ctx context.Context) {
 		plan.End()
 		// Fallback response
 		_, fallback := chatSpan(ctx, "gpt-4o", 100, 80)
-		fallback.SetAttributes(attribute.String("gen_ai.request.max_tokens", "256"))
+		fallback.SetAttributes(attribute.Int("gen_ai.request.max_tokens", 256))
 		sleep(200, 500)
 		fallback.End()
 		return
@@ -2828,9 +2848,9 @@ func aiChatbotFlow(ctx context.Context) {
 
 	// Tool 1: Get order status
 	go func() {
-		_, tool := toolSpan(ctx, "get_order_status", "Get the status of a customer order")
+		toolCtx, tool := toolSpan(ctx, "get_order_status", "Get the status of a customer order")
 		sleep(5, 15)
-		_, orderLookup := tracer("order-service").Start(ctx, "GetOrderByID",
+		_, orderLookup := tracer("order-service").Start(toolCtx, "GetOrderByID",
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(
 				attribute.String("order.id", randomOrderID()),
@@ -2845,9 +2865,9 @@ func aiChatbotFlow(ctx context.Context) {
 
 	// Tool 2: Search products
 	go func() {
-		_, tool := toolSpan(ctx, "search_products", "Search product catalog by query")
+		toolCtx, tool := toolSpan(ctx, "search_products", "Search product catalog by query")
 		sleep(5, 10)
-		_, search := tracer("search-service").Start(ctx, "Elasticsearch Query",
+		_, search := tracer("search-service").Start(toolCtx, "Elasticsearch Query",
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(
 				attribute.String("db.system", "elasticsearch"),
@@ -2863,9 +2883,9 @@ func aiChatbotFlow(ctx context.Context) {
 
 	// Tool 3: Get tracking info
 	go func() {
-		_, tool := toolSpan(ctx, "get_tracking", "Get shipping tracking information")
+		toolCtx, tool := toolSpan(ctx, "get_tracking", "Get shipping tracking information")
 		sleep(5, 10)
-		_, tracking := tracer("shipping-service").Start(ctx, "GetTrackingInfo",
+		_, tracking := tracer("shipping-service").Start(toolCtx, "GetTrackingInfo",
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(
 				attribute.String("shipping.tracking_number", fmt.Sprintf("1Z%s", randomHex(16))),
@@ -2944,6 +2964,7 @@ func contentModerationFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("rpc.system", "grpc"),
 			attribute.String("rpc.service", "AuthService"),
+			attribute.String("rpc.method", "ValidateToken"),
 		),
 	)
 	sleep(3, 8)
@@ -3093,6 +3114,7 @@ func multiStepAgentFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("rpc.system", "grpc"),
 			attribute.String("rpc.service", "AuthService"),
+			attribute.String("rpc.method", "ValidateToken"),
 		),
 	)
 	sleep(3, 8)
@@ -3145,13 +3167,13 @@ func multiStepAgentFlow(ctx context.Context) {
 
 		// Act step — execute selected tool
 		tool := toolRegistry[rand.Intn(len(toolRegistry))]
-		_, toolExec := toolSpan(iterCtx, tool.name, tool.desc)
+		toolCtx, toolExec := toolSpan(iterCtx, tool.name, tool.desc)
 		sleep(10, 30)
 
 		// Tool calls a real backend service
 		switch tool.name {
 		case "search_products", "search_reviews":
-			_, search := tracer("search-service").Start(iterCtx, "Elasticsearch Query",
+			_, search := tracer("search-service").Start(toolCtx, "Elasticsearch Query",
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					attribute.String("db.system", "elasticsearch"),
@@ -3162,7 +3184,7 @@ func multiStepAgentFlow(ctx context.Context) {
 			sleep(20, 60)
 			search.End()
 		case "get_order":
-			_, order := tracer("order-service").Start(iterCtx, "GetOrderByID",
+			_, order := tracer("order-service").Start(toolCtx, "GetOrderByID",
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					attribute.String("order.id", randomOrderID()),
@@ -3172,7 +3194,7 @@ func multiStepAgentFlow(ctx context.Context) {
 			sleep(10, 30)
 			order.End()
 		case "get_product":
-			_, product := tracer("product-service").Start(iterCtx, "GetProductByID",
+			_, product := tracer("product-service").Start(toolCtx, "GetProductByID",
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					attribute.String("product.id", fmt.Sprintf("prod_%06d", rand.Intn(999999))),
@@ -3182,7 +3204,7 @@ func multiStepAgentFlow(ctx context.Context) {
 			sleep(8, 25)
 			product.End()
 		case "check_inventory":
-			_, inv := tracer("inventory-service").Start(iterCtx, "CheckStock",
+			_, inv := tracer("inventory-service").Start(toolCtx, "CheckStock",
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					attribute.String("rpc.system", "grpc"),
@@ -3192,7 +3214,7 @@ func multiStepAgentFlow(ctx context.Context) {
 			sleep(10, 25)
 			inv.End()
 		case "get_user":
-			_, user := tracer("user-service").Start(iterCtx, "GetUserProfile",
+			_, user := tracer("user-service").Start(toolCtx, "GetUserProfile",
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					attribute.String("user.id", randomUserID()),
@@ -3294,6 +3316,7 @@ func returnRefundFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("rpc.system", "grpc"),
 			attribute.String("rpc.service", "AuthService"),
+			attribute.String("rpc.method", "ValidateToken"),
 		),
 	)
 	sleep(3, 8)
@@ -3406,7 +3429,7 @@ func returnRefundFlow(ctx context.Context) {
 
 	// Notification
 	ctx3, notify := tracer("notification-service").Start(ctx, "SendRefundConfirmation",
-		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(
 			attribute.String("notification.type", "refund_confirmation"),
 			attribute.String("order.id", orderID),
