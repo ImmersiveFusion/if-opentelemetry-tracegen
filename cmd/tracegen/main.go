@@ -2245,7 +2245,7 @@ var dbExceptions = []exceptionInfo{
 		`System.InvalidOperationException: Connection pool exhausted - max pool size (100) reached
    at Npgsql.PoolingDataSource.Get(NpgsqlTimeout timeout, Boolean async)
    at Npgsql.NpgsqlConnection.Open(Boolean async)
-   at PatientRecords.Services.RecordService.GetByIdAsync(Guid id) in /src/PatientRecords/Services/RecordService.cs:line 31`,
+   at OrderService.Services.OrderLookupService.GetByIdAsync(Guid id) in /src/OrderService/Services/OrderLookupService.cs:line 31`,
 	},
 }
 
