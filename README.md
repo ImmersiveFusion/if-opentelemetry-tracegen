@@ -41,7 +41,7 @@ export OTEL_APIKEY=YOUR_API_KEY
 tracegen -endpoint your-otlp-endpoint:443
 ```
 
-> **See it in 3D** - Try the [IAPM demo](https://demo.iapm.app) to see these traces rendered in an immersive 3D force-directed graph, no setup required.
+> **See it in 3D** - The default endpoint (`otlp.iapm.app`) sends traces straight to [Immersive APM](https://immersivefusion.com), where you can explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
 
 ## Features
 
