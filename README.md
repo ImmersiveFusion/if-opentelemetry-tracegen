@@ -4,6 +4,8 @@ A single-binary distributed trace generator that produces realistic, topology-ri
 
 Built for testing observability platforms, load testing trace pipelines, and showcasing distributed system visualizations - for both traditional APM and LLM observability.
 
+![alt text](.img/screenshot.png)
+
 ## Why This Exists
 
 Every existing trace generator falls into one of two categories:
