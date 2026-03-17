@@ -1,6 +1,6 @@
 # OpenTelemetry Trace Generator
 
-A single-binary distributed trace generator that produces realistic, topology-rich OTLP traces. No Docker, no microservices to deploy, no infrastructure - just one executable that simulates a full e-commerce platform with 28 services, 59 pods, and 40 scenario flows - including 12 AI agentic scenarios with full OTel GenAI semantic conventions.
+A single-binary distributed trace generator that produces realistic, topology-rich OTLP traces. No Docker, no microservices to deploy, no infrastructure - just one executable that simulates a full e-commerce platform with up to 28 services, 60 pods, and 20 scenario flows - including AI agentic scenarios with full OTel GenAI semantic conventions. Three complexity levels (light/normal/heavy) let you scale from a clean 10-service demo to the full topology with AI.
 
 Built for testing observability platforms, load testing trace pipelines, and showcasing distributed system visualizations - for both traditional APM and LLM observability.
 
@@ -213,15 +213,30 @@ The generated traces simulate a .NET-based e-commerce platform with AI capabilit
 tracegen [flags]
 
 Flags:
-  -apikey string     API key for OTLP endpoint (required, or set OTEL_APIKEY env var)
-  -endpoint string   OTLP gRPC endpoint host:port (default "otlp.iapm.app:443")
-  -level int         Aggressiveness 1-10 (default 1)
-  -errors int        Error rate 0-10 (default 0)
-  -no-consumers      Disable all async consumers
-  -no-ai-backends    Disable LLM/AI backends (AI spans emit errors)
-  -ai-only           Only run AI agentic scenarios
-  -insecure          Use plaintext gRPC (no TLS) for local backends
+  -apikey string       API key for OTLP endpoint (required, or set OTEL_APIKEY env var)
+  -endpoint string     OTLP gRPC endpoint host:port (default "otlp.iapm.app:443")
+  -complexity string   Topology complexity: light, normal, heavy (default "normal")
+  -level int           Aggressiveness 1-10 (default 1)
+  -errors int          Error rate 0-10 (default 0)
+  -no-consumers        Disable all async consumers
+  -no-ai-backends      Disable LLM/AI backends (AI spans emit errors)
+  -ai-only             Only run AI agentic scenarios
+  -insecure            Use plaintext gRPC (no TLS) for local backends
 ```
+
+### Complexity Levels
+
+| Complexity | Services | Pods | Scenarios | Best for |
+|---|---|---|---|---|
+| **light** | 10 core | ~20 (min replicas) | 6 | Clean demos, small graphs |
+| **normal** | 20 traditional | ~40 | 16 | General testing, full e-commerce |
+| **heavy** | 28 (+ AI) | ~60 | 20 | Full topology with AI agentic flows |
+
+**Light** includes only the e-commerce backbone: web-frontend, api-gateway, order-service, payment-service, inventory-service, user-service, cache-service, auth-service, product-service, and cart-service. Scenarios are limited to the core flows (Create Order, Search & Browse, User Login, Add to Cart, Full Checkout, Health Check).
+
+**Normal** (default) adds all remaining traditional services and scenarios including chaos/failure modes.
+
+**Heavy** adds all 8 AI services and 4 AI agentic scenarios (RAG Search, AI Chatbot, Content Moderation, Multi-Step Agent).
 
 ### Aggressiveness Levels
 
@@ -241,8 +256,14 @@ Flags:
 ### Examples
 
 ```bash
-# Gentle trace generation, no errors
+# Clean demo with minimal services - great for presentations
+tracegen -apikey $KEY -complexity light -level 1
+
+# Full e-commerce topology (default)
 tracegen -apikey $KEY -level 1
+
+# Everything including AI agentic scenarios
+tracegen -apikey $KEY -complexity heavy -level 3
 
 # Moderate load with normal error rates
 tracegen -apikey $KEY -level 5 -errors 5
