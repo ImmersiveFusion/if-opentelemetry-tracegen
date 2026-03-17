@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(jerry:problem-solving)",
+      "Skill(jerry:problem-solving:*)",
+      "Skill(jerry:prompt-engineering)",
+      "Skill(jerry:prompt-engineering:*)",
+      "Skill(jerry:adversary)",
+      "Skill(jerry:adversary:*)",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}
