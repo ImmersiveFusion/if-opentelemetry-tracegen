@@ -98,6 +98,9 @@ var noAIBackends bool
 // aiOnly — when true, only AI agentic scenarios are run
 var aiOnly bool
 
+// complexity — controls how many services/pods/scenarios are active
+var complexity string // "light", "normal", "heavy"
+
 // errorChance scales a base error probability by the global error multiplier.
 // Base rates are tuned for -errors=5 (moderate). At 0 = no errors, at 10 = ~2x base.
 func errorChance(baseRate float64) bool {
@@ -113,11 +116,16 @@ func main() {
 	insecureFlag := flag.Bool("insecure", false, "use plaintext gRPC (no TLS) for local backends")
 	noAIBackendsFlag := flag.Bool("no-ai-backends", false, "disable all LLM/AI backends (AI spans emit errors)")
 	aiOnlyFlag := flag.Bool("ai-only", false, "only run AI agentic scenarios")
+	complexityFlag := flag.String("complexity", "normal", "topology complexity: light, normal, heavy")
 	flag.Parse()
 	consumersEnabled = !*noConsumers
 	insecureMode = *insecureFlag
 	noAIBackends = *noAIBackendsFlag
 	aiOnly = *aiOnlyFlag
+	complexity = *complexityFlag
+	if complexity != "light" && complexity != "normal" && complexity != "heavy" {
+		log.Fatalf("invalid complexity %q — must be light, normal, or heavy", complexity)
+	}
 
 	endpoint := *endpointFlag
 	apiKey := *apiKeyFlag
@@ -128,7 +136,7 @@ func main() {
 	if apiKey == "" {
 		fmt.Fprintln(os.Stderr, "Error: API key required. Use -apikey flag or set OTEL_APIKEY environment variable.")
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  tracegen -apikey YOUR_KEY [-level N] [-errors N] [-no-consumers]")
+		fmt.Fprintln(os.Stderr, "  tracegen -apikey YOUR_KEY [-complexity light|normal|heavy] [-level N] [-errors N]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Get your API key at https://iapm.app")
 		os.Exit(1)
@@ -147,6 +155,7 @@ func main() {
 	defer cancel()
 
 	// Service definitions with replica ranges — pods are generated at startup
+	// tier: "light" = core backbone, "normal" = full traditional, "heavy" = includes AI
 	type serviceSpec struct {
 		name    string // service name
 		prefix  string // pod ID prefix
@@ -154,38 +163,52 @@ func main() {
 		minPods int    // minimum replicas
 		maxPods int    // maximum replicas
 		isAI    bool   // AI service — excluded when -no-ai-backends
+		tier    string // minimum complexity tier to include this service
 	}
 	services := []serviceSpec{
-		// Traditional services
-		{"web-frontend", "web-frontend", "d7b48c", 2, 4, false},
-		{"api-gateway", "api-gateway", "e5a21b", 3, 6, false},
-		{"order-service", "order-svc", "f3c91a", 2, 5, false},
-		{"payment-service", "payment-svc", "a82d4e", 2, 4, false},
-		{"inventory-service", "inventory-svc", "b46e5f", 2, 4, false},
-		{"notification-service", "notif-svc", "c59f2a", 2, 4, false},
-		{"user-service", "user-svc", "d63a7b", 2, 4, false},
-		{"cache-service", "cache-svc", "e71b4c", 3, 5, false},
-		{"search-service", "search-svc", "f85c3d", 2, 4, false},
-		{"scheduler-service", "scheduler-svc", "a93d1e", 1, 1, false},
-		{"auth-service", "auth-svc", "b47e2f", 3, 5, false},
-		{"recommendation-service", "rec-svc", "c58a3c", 2, 4, false},
-		{"cart-service", "cart-svc", "d72b5e", 2, 4, false},
-		{"product-service", "product-svc", "e85c6f", 3, 5, false},
-		{"shipping-service", "shipping-svc", "f96d7a", 2, 4, false},
-		{"fraud-service", "fraud-svc", "a17e8b", 2, 3, false},
-		{"email-service", "email-svc", "b28f9c", 2, 4, false},
-		{"tax-service", "tax-svc", "c39a1d", 1, 2, false},
-		{"analytics-service", "analytics-svc", "d41b2e", 3, 5, false},
-		{"config-service", "config-svc", "e52c3f", 1, 2, false},
-		// AI services
-		{"llm-gateway", "llm-gw", "a23b4c", 2, 5, true},
-		{"embedding-service", "embed-svc", "b34c5d", 2, 4, true},
-		{"vector-db-service", "vecdb-svc", "c45d6e", 2, 3, true},
-		{"ai-agent-service", "agent-svc", "d56e7f", 2, 4, true},
-		{"content-moderation-service", "modsvc", "e67f8a", 2, 3, true},
-		{"model-registry-service", "modelreg", "f78a9b", 1, 1, true},
-		{"feature-store-service", "featstore", "a89b1c", 2, 3, true},
-		{"data-pipeline-service", "pipeline", "b91c2d", 2, 3, true},
+		// Core backbone (light) — 10 services
+		{"web-frontend", "web-frontend", "d7b48c", 2, 4, false, "light"},
+		{"api-gateway", "api-gateway", "e5a21b", 3, 6, false, "light"},
+		{"order-service", "order-svc", "f3c91a", 2, 5, false, "light"},
+		{"payment-service", "payment-svc", "a82d4e", 2, 4, false, "light"},
+		{"inventory-service", "inventory-svc", "b46e5f", 2, 4, false, "light"},
+		{"user-service", "user-svc", "d63a7b", 2, 4, false, "light"},
+		{"cache-service", "cache-svc", "e71b4c", 3, 5, false, "light"},
+		{"auth-service", "auth-svc", "b47e2f", 3, 5, false, "light"},
+		{"product-service", "product-svc", "e85c6f", 3, 5, false, "light"},
+		{"cart-service", "cart-svc", "d72b5e", 2, 4, false, "light"},
+		// Extended traditional (normal) — adds 10 more
+		{"notification-service", "notif-svc", "c59f2a", 2, 4, false, "normal"},
+		{"search-service", "search-svc", "f85c3d", 2, 4, false, "normal"},
+		{"scheduler-service", "scheduler-svc", "a93d1e", 1, 1, false, "normal"},
+		{"recommendation-service", "rec-svc", "c58a3c", 2, 4, false, "normal"},
+		{"shipping-service", "shipping-svc", "f96d7a", 2, 4, false, "normal"},
+		{"fraud-service", "fraud-svc", "a17e8b", 2, 3, false, "normal"},
+		{"email-service", "email-svc", "b28f9c", 2, 4, false, "normal"},
+		{"tax-service", "tax-svc", "c39a1d", 1, 2, false, "normal"},
+		{"analytics-service", "analytics-svc", "d41b2e", 3, 5, false, "normal"},
+		{"config-service", "config-svc", "e52c3f", 1, 2, false, "normal"},
+		// AI services (heavy) — adds 8 more
+		{"llm-gateway", "llm-gw", "a23b4c", 2, 5, true, "heavy"},
+		{"embedding-service", "embed-svc", "b34c5d", 2, 4, true, "heavy"},
+		{"vector-db-service", "vecdb-svc", "c45d6e", 2, 3, true, "heavy"},
+		{"ai-agent-service", "agent-svc", "d56e7f", 2, 4, true, "heavy"},
+		{"content-moderation-service", "modsvc", "e67f8a", 2, 3, true, "heavy"},
+		{"model-registry-service", "modelreg", "f78a9b", 1, 1, true, "heavy"},
+		{"feature-store-service", "featstore", "a89b1c", 2, 3, true, "heavy"},
+		{"data-pipeline-service", "pipeline", "b91c2d", 2, 3, true, "heavy"},
+	}
+
+	// tierIncluded checks if a service's tier is active for the current complexity
+	tierIncluded := func(tier string) bool {
+		switch complexity {
+		case "heavy":
+			return true
+		case "normal":
+			return tier == "light" || tier == "normal"
+		default: // light
+			return tier == "light"
+		}
 	}
 
 	// AKS VMSS nodes (2 node pools, 5 nodes total)
@@ -215,12 +238,17 @@ func main() {
 	suffixIdx := 0
 	totalServices := 0
 	for _, svc := range services {
+		if !tierIncluded(svc.tier) {
+			continue
+		}
 		if svc.isAI && noAIBackends {
 			continue
 		}
 		totalServices++
 		replicas := svc.minPods
-		if svc.maxPods > svc.minPods {
+		if complexity == "light" {
+			replicas = svc.minPods // always use minimum in light mode
+		} else if svc.maxPods > svc.minPods {
 			replicas = svc.minPods + rand.Intn(svc.maxPods-svc.minPods+1)
 		}
 		for r := 0; r < replicas; r++ {
@@ -249,33 +277,38 @@ func main() {
 		fn       func(context.Context)
 		isError  bool   // true = dedicated error scenario, excluded when -errors=0
 		category string // "traditional", "ai", or "chaos"
+		tier     string // minimum complexity tier: "light", "normal", "heavy"
 	}
 	allScenarios := []namedScenario{
-		// Traditional scenarios
-		{"Create Order", createOrderFlow, false, "traditional"},
-		{"Search & Browse", searchAndBrowseFlow, false, "traditional"},
-		{"User Login", userLoginFlow, false, "traditional"},
-		{"Failed Payment", failedPaymentFlow, true, "chaos"},
-		{"Bulk Notifications", bulkNotificationFlow, false, "traditional"},
-		{"Health Check", healthCheckFlow, false, "traditional"},
-		{"Inventory Sync", inventorySyncFlow, false, "traditional"},
-		{"Scheduled Report", scheduledReportFlow, false, "traditional"},
-		{"Stripe Webhook", stripeWebhookFlow, false, "traditional"},
-		{"Recommendations", recommendationFlow, false, "traditional"},
-		{"Add to Cart", addToCartFlow, false, "traditional"},
-		{"Full Checkout", fullCheckoutFlow, false, "traditional"},
-		{"Shipping Update", shippingUpdateFlow, false, "traditional"},
-		{"Saga Compensation", sagaCompensationFlow, true, "chaos"},
-		{"Timeout Cascade", timeoutCascadeFlow, true, "chaos"},
-		// AI agentic scenarios
-		{"RAG Search", ragSearchFlow, false, "ai"},
-		{"AI Chatbot", aiChatbotFlow, false, "ai"},
-		{"Content Moderation", contentModerationFlow, false, "ai"},
-		{"Multi-Step Agent", multiStepAgentFlow, false, "ai"},
-		{"Return/Refund", returnRefundFlow, false, "traditional"},
+		// Core scenarios (light) — clean demo flows
+		{"Create Order", createOrderFlow, false, "traditional", "light"},
+		{"Search & Browse", searchAndBrowseFlow, false, "traditional", "light"},
+		{"User Login", userLoginFlow, false, "traditional", "light"},
+		{"Add to Cart", addToCartFlow, false, "traditional", "light"},
+		{"Full Checkout", fullCheckoutFlow, false, "traditional", "light"},
+		{"Health Check", healthCheckFlow, false, "traditional", "light"},
+		// Extended scenarios (normal)
+		{"Failed Payment", failedPaymentFlow, true, "chaos", "normal"},
+		{"Bulk Notifications", bulkNotificationFlow, false, "traditional", "normal"},
+		{"Inventory Sync", inventorySyncFlow, false, "traditional", "normal"},
+		{"Scheduled Report", scheduledReportFlow, false, "traditional", "normal"},
+		{"Stripe Webhook", stripeWebhookFlow, false, "traditional", "normal"},
+		{"Recommendations", recommendationFlow, false, "traditional", "normal"},
+		{"Shipping Update", shippingUpdateFlow, false, "traditional", "normal"},
+		{"Return/Refund", returnRefundFlow, false, "traditional", "normal"},
+		{"Saga Compensation", sagaCompensationFlow, true, "chaos", "normal"},
+		{"Timeout Cascade", timeoutCascadeFlow, true, "chaos", "normal"},
+		// AI agentic scenarios (heavy)
+		{"RAG Search", ragSearchFlow, false, "ai", "heavy"},
+		{"AI Chatbot", aiChatbotFlow, false, "ai", "heavy"},
+		{"Content Moderation", contentModerationFlow, false, "ai", "heavy"},
+		{"Multi-Step Agent", multiStepAgentFlow, false, "ai", "heavy"},
 	}
 	var scenarios []namedScenario
 	for _, s := range allScenarios {
+		if !tierIncluded(s.tier) {
+			continue
+		}
 		if s.isError && errorMultiplier == 0 {
 			continue
 		}
@@ -291,7 +324,7 @@ func main() {
 	errorLabels := []string{"none", "rare", "rare", "low", "low", "normal", "elevated", "high", "high", "extreme", "chaos"}
 	fmt.Println()
 	fmt.Printf("OpenTelemetry Trace Generator (%d services, %d pods, %d scenarios)\n", totalServices, len(pods), len(scenarios))
-	fmt.Printf("Endpoint: %s\n", endpoint)
+	fmt.Printf("Endpoint: %s  Complexity: %s\n", endpoint, complexity)
 	fmt.Printf("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
 		*level, cfg.label, cfg.tickMs, cfg.burstMin, cfg.burstMax, errorLabels[*errors], *errors)
 	if aiOnly && noAIBackends {
