@@ -35,15 +35,18 @@ The combination of `/adversary`, `/red-team`, and `/nasa-se` is why a single dev
 # Download the latest release (or build from source)
 go install github.com/ImmersiveFusion/if-opentelemetry-tracegen/cmd/tracegen@latest
 
-# Run with your OTLP endpoint
-tracegen -apikey YOUR_API_KEY -endpoint your-otlp-endpoint:443
+# Send to a local OTLP collector (Jaeger, Tempo, etc.)
+tracegen -insecure
 
-# Or set the API key via environment variable
-export OTEL_APIKEY=YOUR_API_KEY
+# Send to a remote endpoint with auth headers
+tracegen -endpoint your-otlp-endpoint:443 -headers "api-key=YOUR_KEY"
+
+# Or set headers via the standard OTel environment variable
+export OTEL_EXPORTER_OTLP_HEADERS="api-key=YOUR_KEY"
 tracegen -endpoint your-otlp-endpoint:443
 ```
 
-> **See it in 3D** - The default endpoint (`otlp.iapm.app`) sends traces straight to [Immersive APM](https://immersivefusion.com), where you can explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
+> **See it in 3D** - Send traces to [Immersive APM](https://immersivefusion.com) (`tracegen -endpoint otlp.iapm.app:443 -headers "api-key=YOUR_KEY"`) to explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
 
 ## Features
 
@@ -213,8 +216,8 @@ The generated traces simulate a .NET-based e-commerce platform with AI capabilit
 tracegen [flags]
 
 Flags:
-  -apikey string       API key for OTLP endpoint (required, or set OTEL_APIKEY env var)
-  -endpoint string     OTLP gRPC endpoint host:port (default "otlp.iapm.app:443")
+  -endpoint string     OTLP gRPC endpoint host:port (default "localhost:4317")
+  -headers string      OTLP headers as key=value pairs, comma-separated (or set OTEL_EXPORTER_OTLP_HEADERS)
   -complexity string   Topology complexity: light, normal, heavy (default "normal")
   -level int           Aggressiveness 1-10 (default 1)
   -errors int          Error rate 0-10 (default 0)
@@ -256,32 +259,42 @@ Flags:
 ### Examples
 
 ```bash
+# Send to a local Jaeger/Tempo/Collector (default endpoint localhost:4317)
+tracegen -insecure
+
 # Clean demo with minimal services - great for presentations
-tracegen -apikey $KEY -complexity light -level 1
+tracegen -complexity light -level 1 -insecure
 
 # Full e-commerce topology (default)
-tracegen -apikey $KEY -level 1
+tracegen -level 1 -insecure
 
 # Everything including AI agentic scenarios
-tracegen -apikey $KEY -complexity heavy -level 3
+tracegen -complexity heavy -level 3 -insecure
 
 # Moderate load with normal error rates
-tracegen -apikey $KEY -level 5 -errors 5
+tracegen -level 5 -errors 5 -insecure
 
 # Simulate dead consumers (messages pile up, consumers never fire)
-tracegen -apikey $KEY -level 3 -no-consumers
+tracegen -level 3 -no-consumers -insecure
 
 # AI scenarios only - great for LLM observability testing
-tracegen -apikey $KEY -level 3 -ai-only
+tracegen -level 3 -ai-only -insecure
 
 # Simulate AI backend outage (LLM rate limits, timeouts)
-tracegen -apikey $KEY -level 5 -no-ai-backends -errors 5
+tracegen -level 5 -no-ai-backends -errors 5 -insecure
 
 # Chaos mode - maximum load and errors
-tracegen -apikey $KEY -level 10 -errors 10
+tracegen -level 10 -errors 10 -insecure
 
-# Send to a local Jaeger/Tempo instance (any non-empty apikey value works)
-tracegen -apikey local -endpoint localhost:4317 -insecure
+# Send to a remote endpoint with authentication
+tracegen -endpoint otlp.example.com:443 -headers "api-key=YOUR_KEY"
+
+# Multiple headers via environment variable
+export OTEL_EXPORTER_OTLP_HEADERS="api-key=SECRET,x-team=platform"
+tracegen -endpoint otlp.example.com:443
+
+# Send to Immersive APM (3D trace visualization)
+tracegen -endpoint otlp.iapm.app:443 -headers "API-Key=YOUR_IAPM_KEY"
 ```
 
 ## How It Compares
