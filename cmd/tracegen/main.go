@@ -27,9 +27,16 @@ import (
 var tracerPool = map[string][]trace.Tracer{}
 var providers []*sdktrace.TracerProvider
 
-// tracer returns a random instance's tracer for the given service (multi-pod realism)
+// noopTracer is returned for services not in the current complexity tier
+var noopTracer = trace.NewNoopTracerProvider().Tracer("")
+
+// tracer returns a random instance's tracer for the given service (multi-pod realism).
+// Returns a noop tracer if the service is not in the current complexity tier.
 func tracer(svc string) trace.Tracer {
 	pool := tracerPool[svc]
+	if len(pool) == 0 {
+		return noopTracer
+	}
 	return pool[rand.Intn(len(pool))]
 }
 
