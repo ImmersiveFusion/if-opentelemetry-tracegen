@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -40,10 +41,15 @@ func tracer(svc string) trace.Tracer {
 	return pool[rand.Intn(len(pool))]
 }
 
-func newProvider(ctx context.Context, serviceName, endpoint, apiKey, instanceID, hostName string) *sdktrace.TracerProvider {
+// parsed headers shared by all providers
+var otlpHeaders map[string]string
+
+func newProvider(ctx context.Context, serviceName, endpoint, instanceID, hostName string) *sdktrace.TracerProvider {
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithHeaders(map[string]string{"API-Key": apiKey}),
+	}
+	if len(otlpHeaders) > 0 {
+		opts = append(opts, otlptracegrpc.WithHeaders(otlpHeaders))
 	}
 	if insecureMode {
 		opts = append(opts, otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()))
@@ -115,8 +121,8 @@ func errorChance(baseRate float64) bool {
 }
 
 func main() {
-	endpointFlag := flag.String("endpoint", "otlp.iapm.app:443", "OTLP gRPC endpoint (host:port)")
-	apiKeyFlag := flag.String("apikey", "", "API key for OTLP endpoint (required)")
+	endpointFlag := flag.String("endpoint", "localhost:4317", "OTLP gRPC endpoint (host:port)")
+	headersFlag := flag.String("headers", "", "OTLP headers as key=value pairs, comma-separated (e.g. \"api-key=SECRET,x-org=myorg\")")
 	level := flag.Int("level", 1, "aggressiveness 1-10 (1=whisper, 10=SCREAM)")
 	errors := flag.Int("errors", 0, "error rate 0-10 (0=none, 5=normal, 10=chaos)")
 	noConsumers := flag.Bool("no-consumers", false, "disable all async consumers (messages published but never consumed)")
@@ -135,18 +141,11 @@ func main() {
 	}
 
 	endpoint := *endpointFlag
-	apiKey := *apiKeyFlag
-	if apiKey == "" {
-		// Check environment variable as fallback
-		apiKey = os.Getenv("OTEL_APIKEY")
-	}
-	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: API key required. Use -apikey flag or set OTEL_APIKEY environment variable.")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  tracegen -apikey YOUR_KEY [-complexity light|normal|heavy] [-level N] [-errors N]")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Get your API key at https://iapm.app")
-		os.Exit(1)
+
+	// Parse headers: -headers flag takes precedence, then OTEL_EXPORTER_OTLP_HEADERS env var
+	otlpHeaders = parseHeaders(*headersFlag)
+	if len(otlpHeaders) == 0 {
+		otlpHeaders = parseHeaders(os.Getenv("OTEL_EXPORTER_OTLP_HEADERS"))
 	}
 
 	cfg, ok := levels[*level]
@@ -268,7 +267,7 @@ func main() {
 	}
 
 	for _, p := range pods {
-		newProvider(ctx, p.svc, endpoint, apiKey, p.id, p.node)
+		newProvider(ctx, p.svc, endpoint, p.id, p.node)
 	}
 	defer func() {
 		for _, tp := range providers {
@@ -2432,6 +2431,25 @@ var paymentExceptions = []exceptionInfo{
    at PaymentService.Services.PaymentProcessor.ProcessAsync(Order order) in /src/PaymentService/Services/PaymentProcessor.cs:line 48
    at PaymentService.Workers.PaymentWorker.HandleMessage(RabbitMQ.Message msg) in /src/PaymentService/Workers/PaymentWorker.cs:line 33`,
 	},
+}
+
+// parseHeaders parses "key=value,key2=value2" into a map.
+// Compatible with OTEL_EXPORTER_OTLP_HEADERS env var format.
+func parseHeaders(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	headers := map[string]string{}
+	for _, pair := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if ok && k != "" {
+			headers[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	if len(headers) == 0 {
+		return nil
+	}
+	return headers
 }
 
 func randomException(exceptions []exceptionInfo) exceptionInfo {
