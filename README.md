@@ -1,6 +1,6 @@
 # OpenTelemetry Trace Generator
 
-A single-binary distributed trace generator that produces realistic, topology-rich OTLP traces. No Docker, no microservices to deploy, no infrastructure - just one executable that simulates a full e-commerce platform with up to 28 services, 60 pods, and 20 scenario flows - including AI agentic scenarios with full OTel GenAI semantic conventions. Three complexity levels (light/normal/heavy) let you scale from a clean 10-service demo to the full topology with AI.
+A single-binary distributed trace generator that produces realistic, topology-rich OTLP traces and correlated logs. No Docker, no microservices to deploy, no infrastructure - just one executable that simulates a full e-commerce platform with up to 28 services, 60 pods, and 20 scenario flows - including AI agentic scenarios with full OTel GenAI semantic conventions. Three complexity levels (light/normal/heavy) let you scale from a clean 10-service demo to the full topology with AI.
 
 Built for testing observability platforms, load testing trace pipelines, and showcasing distributed system visualizations - for both traditional APM and LLM observability.
 
@@ -146,6 +146,16 @@ All 59 pods are distributed across 5 AKS VMSS nodes (2 node pools) with realisti
 
 > **Note:** Failed Payment, Saga Compensation, Timeout Cascade, lost messages, and retry storms only activate when `-errors > 0`. AI error scenarios (rate limits, hallucinated tool calls, token budget exceeded, content filter blocks) also require `-errors > 0`.
 
+### Correlated Logs
+
+Every service emits OTel log records via OTLP alongside traces. Logs are automatically correlated with the active span context (trace_id, span_id), so your APM platform can link logs to the exact span that produced them.
+
+- **ERROR** logs are emitted alongside every exception event (cache failures, DB errors, payment declines, LLM rate limits, agent failures)
+- **WARN** logs fire on auth failures, content moderation flags, payment retries, and LLM fallbacks
+- **INFO** logs cover request entry points, payment processing, fraud analysis, agent invocations, and iteration progress
+
+Disable with `-no-logs` to emit traces only.
+
 ### OTel GenAI Semantic Conventions
 
 All AI scenarios emit spans following [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) and matching the exact span shapes produced by [Microsoft Semantic Kernel](https://learn.microsoft.com/en-us/semantic-kernel/concepts/enterprise-readiness/observability/) and [Microsoft Agent Framework](https://learn.microsoft.com/en-us/semantic-kernel/frameworks/agent/agent-observability).
@@ -224,6 +234,7 @@ Flags:
   -no-consumers        Disable all async consumers
   -no-ai-backends      Disable LLM/AI backends (AI spans emit errors)
   -ai-only             Only run AI agentic scenarios
+  -no-logs             Disable OTel log record emission (traces only)
   -insecure            Use plaintext gRPC (no TLS) for local backends
 ```
 
