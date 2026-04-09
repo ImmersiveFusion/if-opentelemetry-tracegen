@@ -160,6 +160,21 @@ func ragSearchFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analytics.End()
+
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent semantic_search.complete",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "semantic_search.complete"),
+			),
+		)
+		sleep(5, 15)
+		analyticsConsumer.End()
+	}
 }
 
 // ─── AI-02: AI Chatbot with Tool Use ──────────────────────────────────────────
@@ -464,6 +479,21 @@ func contentModerationFlow(ctx context.Context) {
 		sleep(3, 8)
 		queue.End()
 
+		if consumersEnabled {
+			sleep(20, 80)
+			_, reviewer := tracer("notification-service").Start(ctx, "ProcessReview flagged_content",
+				trace.WithSpanKind(trace.SpanKindConsumer),
+				trace.WithAttributes(
+					attribute.String("messaging.system", "rabbitmq"),
+					attribute.String("messaging.operation", "receive"),
+					attribute.String("messaging.destination", "moderation.review_queue"),
+					attribute.String("review.status", "pending_human_review"),
+				),
+			)
+			sleep(5, 15)
+			reviewer.End()
+		}
+
 		gateway.SetAttributes(attribute.Int("http.status_code", 202))
 
 	case "block":
@@ -680,6 +710,21 @@ func multiStepAgentFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analytics.End()
+
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent agent.task_complete",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "agent.task_complete"),
+			),
+		)
+		sleep(5, 15)
+		analyticsConsumer.End()
+	}
 }
 
 // ─── T-03: Return/Refund ─────────────────────────────────────────────────────
@@ -864,4 +909,20 @@ func returnRefundFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analytics.End()
+
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent order.refunded",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "order.refunded"),
+				attribute.String("order.id", orderID),
+			),
+		)
+		sleep(5, 15)
+		analyticsConsumer.End()
+	}
 }

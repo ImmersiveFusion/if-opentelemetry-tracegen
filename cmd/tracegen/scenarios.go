@@ -1178,6 +1178,22 @@ func addToCartFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analytics.End()
+
+	if !consumersEnabled {
+		return
+	}
+	sleep(20, 80)
+	_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent cart.item_added",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.operation", "receive"),
+			attribute.String("messaging.destination", "analytics.events"),
+			attribute.String("analytics.event_type", "cart.item_added"),
+		),
+	)
+	sleep(5, 15)
+	analyticsConsumer.End()
 }
 
 // Full checkout flow — THE monster chain touching nearly every service.
@@ -1448,6 +1464,22 @@ func fullCheckoutFlow(ctx context.Context) {
 	sleep(2, 5)
 	analyticsEvt.End()
 
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent checkout.complete",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "checkout.complete"),
+				attribute.String("order.id", orderID),
+			),
+		)
+		sleep(5, 20)
+		analyticsConsumer.End()
+	}
+
 	// Queue notification
 	_, publish := tracer("order-service").Start(ctx, "rabbitmq publish orders.created",
 		trace.WithSpanKind(trace.SpanKindProducer),
@@ -1609,6 +1641,21 @@ func shippingUpdateFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analytics.End()
+
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent shipping.status_changed",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "shipping.status_changed"),
+			),
+		)
+		sleep(5, 15)
+		analyticsConsumer.End()
+	}
 }
 
 // Saga compensation — payment fails after order+inventory committed, triggering reverse compensations.
@@ -1857,6 +1904,22 @@ func sagaCompensationFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analyticsCancel.End()
+
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent order.cancelled",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "order.cancelled"),
+				attribute.String("order.id", orderID),
+			),
+		)
+		sleep(5, 15)
+		analyticsConsumer.End()
+	}
 }
 
 // Timeout cascade — search-service is slow, gateway times out, frontend retries with cache fallback.
@@ -1962,4 +2025,19 @@ func timeoutCascadeFlow(ctx context.Context) {
 	)
 	sleep(2, 5)
 	analytics.End()
+
+	if consumersEnabled {
+		sleep(20, 80)
+		_, analyticsConsumer := tracer("analytics-service").Start(ctx, "ProcessEvent search.degraded",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "analytics.events"),
+				attribute.String("analytics.event_type", "search.degraded"),
+			),
+		)
+		sleep(5, 15)
+		analyticsConsumer.End()
+	}
 }
