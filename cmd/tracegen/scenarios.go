@@ -132,7 +132,9 @@ func createOrderFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("messaging.system", "rabbitmq"),
 			attribute.String("messaging.operation", "receive"),
-			attribute.String("messaging.destination", "payments.process"),
+			// Consume the queue the producer actually published (orders.created),
+			// so producer/consumer correlate and no phantom is raised.
+			attribute.String("messaging.destination", "orders.created"),
 			attribute.String("payment.provider", "stripe"),
 		),
 	)
@@ -544,6 +546,10 @@ func bulkNotificationFlow(ctx context.Context) {
 		_, notify := tracer("notification-service").Start(ctx, fmt.Sprintf("SendDigestEmail #%d", i+1),
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
+				// Correlate with the notifications.digest producer above.
+				attribute.String("messaging.system", "rabbitmq"),
+				attribute.String("messaging.operation", "receive"),
+				attribute.String("messaging.destination", "notifications.digest"),
 				attribute.String("peer.service", "sendgrid"),
 				attribute.String("notification.type", "daily_digest"),
 				attribute.Int("notification.batch_index", i),
@@ -814,6 +820,8 @@ func scheduledReportFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("messaging.system", "rabbitmq"),
 			attribute.String("messaging.operation", "receive"),
+			// Correlate with the reports.ready producer above.
+			attribute.String("messaging.destination", "reports.ready"),
 			attribute.String("peer.service", "sendgrid"),
 			attribute.String("notification.type", "daily_report"),
 		),
@@ -924,6 +932,8 @@ func stripeWebhookFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("messaging.system", "rabbitmq"),
 			attribute.String("messaging.operation", "receive"),
+			// Correlate with the orders.confirmed producer above.
+			attribute.String("messaging.destination", "orders.confirmed"),
 			attribute.String("peer.service", "sendgrid"),
 			attribute.String("notification.type", "payment_receipt"),
 		),
@@ -1503,6 +1513,8 @@ func fullCheckoutFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("messaging.system", "rabbitmq"),
 			attribute.String("messaging.operation", "receive"),
+			// Correlate with the orders.created producer above.
+			attribute.String("messaging.destination", "orders.created"),
 			attribute.String("notification.type", "order_confirmation"),
 			attribute.String("order.id", orderID),
 		),
@@ -1613,6 +1625,8 @@ func shippingUpdateFlow(ctx context.Context) {
 		trace.WithAttributes(
 			attribute.String("messaging.system", "rabbitmq"),
 			attribute.String("messaging.operation", "receive"),
+			// Correlate with the shipping.updated producer above.
+			attribute.String("messaging.destination", "shipping.updated"),
 			attribute.String("notification.type", "shipping_update"),
 		),
 	)
@@ -1805,6 +1819,7 @@ func sagaCompensationFlow(ctx context.Context) {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
 				attribute.String("messaging.system", "rabbitmq"),
+				attribute.String("messaging.destination", "saga.compensate"),
 				attribute.String("saga.action", "cancel_order"),
 				attribute.String("order.id", orderID),
 			),
@@ -1830,6 +1845,7 @@ func sagaCompensationFlow(ctx context.Context) {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
 				attribute.String("messaging.system", "rabbitmq"),
+				attribute.String("messaging.destination", "saga.compensate"),
 				attribute.String("saga.action", "release_stock"),
 				attribute.String("order.id", orderID),
 			),
@@ -1855,6 +1871,7 @@ func sagaCompensationFlow(ctx context.Context) {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
 				attribute.String("messaging.system", "rabbitmq"),
+				attribute.String("messaging.destination", "saga.compensate"),
 				attribute.String("saga.action", "void_shipping"),
 				attribute.String("order.id", orderID),
 			),
@@ -1870,6 +1887,7 @@ func sagaCompensationFlow(ctx context.Context) {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
 				attribute.String("messaging.system", "rabbitmq"),
+				attribute.String("messaging.destination", "saga.compensate"),
 				attribute.String("notification.type", "order_cancelled"),
 				attribute.String("order.id", orderID),
 			),
