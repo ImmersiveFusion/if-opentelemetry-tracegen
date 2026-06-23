@@ -7,7 +7,7 @@
 #   docker run --rm immersivefusion/tracegen -endpoint <collector:4317> -insecure ...
 # syntax=docker/dockerfile:1
 
-FROM golang:1.22-bookworm AS build
+FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
