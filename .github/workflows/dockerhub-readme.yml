@@ -1,0 +1,31 @@
+name: Docker Hub description
+
+# Publishes the Docker Hub overview + short description from DOCKERHUB.md.
+# Converge-to-source: the Hub page is never hand-edited; DOCKERHUB.md is the single source.
+# Runs on merge to main when DOCKERHUB.md changes (so the page updates immediately), and on demand.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - DOCKERHUB.md
+      - .github/workflows/dockerhub-readme.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  description:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: immersivefusion
+          password: ${{ secrets.DOCKERHUB_TOKEN }}   # PAT with read/write; same secret as the image push
+          repository: immersivefusion/tracegen
+          short-description: "Single-binary OTLP trace generator: 28-service topology, AI agentic spans, injectable failures"
+          readme-filepath: ./DOCKERHUB.md
