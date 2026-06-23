@@ -1,3 +1,5 @@
+<!-- Canonical source for the Docker Hub Overview. Pasted into the Hub page by hand
+     (the description API rejects PATs). When you change this, re-paste it on Docker Hub. -->
 # TraceGen
 
 **One container that emits realistic, topology-rich OpenTelemetry traces, including AI agentic spans.** No microservices to deploy, no Docker Compose with 15 containers. A single 5.7 MB image simulates a full e-commerce platform: up to 28 services, 60 pods, 40 scenario flows, and 10 injectable failure modes, with full OTel GenAI semantic conventions for LLM/agent observability.
