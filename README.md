@@ -17,18 +17,6 @@ And none of them generate **AI agentic traces**. The LLM observability market ha
 
 This tool generates **topology-rich, failure-injectable traces from a single binary** - covering both traditional microservice flows AND AI agentic patterns with OTel GenAI semantic conventions. One binary proves that a platform can visualize both.
 
-## Built with Jerry
-
-This project was designed and validated using the [Jerry Framework](https://github.com/geekatron/jerry/) ([docs](https://jerry.geekatron.org/)) - an AI-native systems engineering framework for Claude Code.
-
-- **Adversarial quality review** - Every scenario flow and chaos/failure mode was stress-tested using Jerry's `/adversary` skill. The adversarial review challenged trace realism, span attribute completeness, failure propagation correctness, and edge-case coverage. Each scenario was scored against adversarial templates and iterated until it passed.
-
-- **Red team validation** - Jerry's `/red-team` skill probed the tool from an offensive security perspective - verifying that generated traces don't leak secrets, that the binary doesn't introduce supply-chain risk, and that the OTLP output conforms to spec even under chaos conditions.
-
-- **NASA-grade systems engineering** - The requirements, architecture, and verification matrix were driven through Jerry's `/nasa-se` skill (implementing NPR 7123.1D processes). Requirements traceability, verification coverage, and risk disposition all met mission-grade thresholds before the first release.
-
-The combination of `/adversary`, `/red-team`, and `/nasa-se` is why a single developer could ship a tool with 28 services, 59 pods, 40 flows, and 10 failure modes - with confidence that it actually works correctly.
-
 ## Quick Start
 
 ```bash
@@ -47,6 +35,14 @@ tracegen -endpoint your-otlp-endpoint:443
 ```
 
 > **See it in 3D** - Send traces to [Immersive APM](https://immersivefusion.com) (`tracegen -endpoint otlp.iapm.app:443 -headers "api-key=YOUR_KEY"`) to explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
+
+## Live demo grids — see it running
+
+Seven always-on demo grids stream live OpenTelemetry traces into Immersive APM's 3D player right now — a clean baseline, an AI-native app, a blended environment, phantom-service detection, an AI-outage, and a full incident. Each grid is this container, deployed declaratively via GitOps (Argo CD) in the Immersive Fusion cloud — multi-arch and distroless, one matrix row per grid, shipping to `otlp.iapm.app:443`.
+
+**See them in 3D:** the full experience is the **IAPM 3D client** — install it and open a grid to walk the live traces. On mobile or can't install right now? **IAPM Web** runs the same grids in your browser at [portal.iapm.app](https://portal.iapm.app).
+
+**[Where else does TraceGen run? →](WHERE-TRACEGEN-RUNS.md)** — a community board of deployments. Add yours.
 
 ## Features
 
@@ -417,6 +413,10 @@ The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semcon
 [YouTube](https://www.youtube.com/@immersivefusion)
 
 [Try Immersive APM](https://immersivefusion.com/landing/default) for your own projects.
+
+## Colophon
+
+Designed and built with the [Jerry Framework](https://github.com/geekatron/jerry/) ([docs](https://jerry.geekatron.org/)), an AI-native systems engineering framework for Claude Code.
 
 ## License
 
