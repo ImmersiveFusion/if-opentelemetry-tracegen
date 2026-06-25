@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -186,6 +187,57 @@ func errorChance(baseRate float64) bool {
 	return rand.Float64() < baseRate*errorMultiplier
 }
 
+// Console verbosity levels — controls ONLY stdout chatter (the startup banner and the
+// periodic "traces sent" heartbeat). Distinct from the OTel log records the generator
+// emits. Genuine errors (stderr) and fatal exits always surface, at any level.
+const (
+	logSilent = iota // nothing but fatal errors
+	logError         // errors only — suppresses banner + heartbeat (the sane container default)
+	logInfo          // banner + periodic heartbeat (CLI default, current behavior)
+	logDebug         // reserved for future verbose diagnostics
+)
+
+var logLevel = logInfo
+
+// resolveLogLevel applies precedence: -quiet > -log-level flag > TRACEGEN_LOG_LEVEL env
+// (containers set env, not flags) > default (info). Mirrors the -headers/env pattern below.
+func resolveLogLevel(flagVal string, quiet bool) int {
+	v := flagVal
+	if v == "" {
+		v = os.Getenv("TRACEGEN_LOG_LEVEL")
+	}
+	if quiet {
+		v = "error"
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "info":
+		return logInfo
+	case "silent", "none", "off":
+		return logSilent
+	case "error", "errors":
+		return logError
+	case "debug":
+		return logDebug
+	default:
+		log.Fatalf("invalid -log-level %q — must be silent, error, info, or debug", v)
+		return logInfo
+	}
+}
+
+// infof / infoln write to stdout only at info level or above — suppressed by
+// -quiet, -log-level=error, and -log-level=silent.
+func infof(format string, a ...any) {
+	if logLevel >= logInfo {
+		fmt.Printf(format, a...)
+	}
+}
+
+func infoln(a ...any) {
+	if logLevel >= logInfo {
+		fmt.Println(a...)
+	}
+}
+
 func main() {
 	endpointFlag := flag.String("endpoint", "localhost:4317", "OTLP gRPC endpoint (host:port)")
 	headersFlag := flag.String("headers", "", "OTLP headers as key=value pairs, comma-separated (e.g. \"api-key=SECRET,x-org=myorg\")")
@@ -197,7 +249,10 @@ func main() {
 	aiOnlyFlag := flag.Bool("ai-only", false, "only run AI agentic scenarios")
 	complexityFlag := flag.String("complexity", "normal", "topology complexity: light, normal, heavy")
 	noLogsFlag := flag.Bool("no-logs", false, "disable OTel log record emission (traces only)")
+	logLevelFlag := flag.String("log-level", "", "console verbosity: silent, error, info, debug (default info; env TRACEGEN_LOG_LEVEL)")
+	quietFlag := flag.Bool("quiet", false, "errors only — suppress the startup banner and the periodic 'traces sent' heartbeat (alias for -log-level=error)")
 	flag.Parse()
+	logLevel = resolveLogLevel(*logLevelFlag, *quietFlag)
 	consumersEnabled = !*noConsumers
 	insecureMode = *insecureFlag
 	noAIBackends = *noAIBackendsFlag
@@ -399,33 +454,33 @@ func main() {
 	}
 
 	errorLabels := []string{"none", "rare", "rare", "low", "low", "normal", "elevated", "high", "high", "extreme", "chaos"}
-	fmt.Println()
-	fmt.Printf("OpenTelemetry Trace Generator (%d services, %d pods, %d scenarios)\n", totalServices, len(pods), len(scenarios))
-	fmt.Printf("Endpoint: %s  Complexity: %s\n", endpoint, complexity)
-	fmt.Printf("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
+	infoln()
+	infof("OpenTelemetry Trace Generator (%d services, %d pods, %d scenarios)\n", totalServices, len(pods), len(scenarios))
+	infof("Endpoint: %s  Complexity: %s\n", endpoint, complexity)
+	infof("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
 		*level, cfg.label, cfg.tickMs, cfg.burstMin, cfg.burstMax, errorLabels[*errors], *errors)
 	if aiOnly && noAIBackends {
 		fmt.Fprintln(os.Stderr, "Error: -ai-only and -no-ai-backends are mutually exclusive.")
 		os.Exit(1)
 	}
 	if aiOnly {
-		fmt.Println("Mode: AI-only (traditional scenarios excluded)")
+		infoln("Mode: AI-only (traditional scenarios excluded)")
 	}
 	if noAIBackends {
-		fmt.Println("Mode: No AI backends (AI services excluded)")
+		infoln("Mode: No AI backends (AI services excluded)")
 	}
 	if len(scenarios) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: no scenarios available with current flags.")
 		os.Exit(1)
 	}
-	fmt.Println("Press Ctrl+C to stop.")
-	fmt.Println()
+	infoln("Press Ctrl+C to stop.")
+	infoln()
 
 	sent := 0
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("\nShutting down, flushing %d traces...\n", sent)
+			infof("\nShutting down, flushing %d traces...\n", sent)
 			return
 		case <-ticker.C:
 			burst := cfg.burstMin + rand.Intn(cfg.burstMax-cfg.burstMin+1)
@@ -433,7 +488,7 @@ func main() {
 				s := scenarios[rand.Intn(len(scenarios))]
 				sent++
 				if sent%50 == 0 {
-					fmt.Printf("[%s] %d traces sent  (%d services, %d pods, %d scenarios)\n", time.Now().Format("15:04:05"), sent, totalServices, len(pods), len(scenarios))
+					infof("[%s] %d traces sent  (%d services, %d pods, %d scenarios)\n", time.Now().Format("15:04:05"), sent, totalServices, len(pods), len(scenarios))
 				}
 				go s.fn(ctx)
 			}

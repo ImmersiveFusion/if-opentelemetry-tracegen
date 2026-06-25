@@ -19,4 +19,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # distroless/static: no shell, CA certs included (for OTLP/TLS egress), runs as non-root.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/tracegen /usr/bin/tracegen
+# Containers run permanently (the free demo grids), so default to errors-only: the
+# per-tick "N traces sent" heartbeat is pure log noise/cost at that scale. The bare
+# CLI default stays "info" (unchanged). Override per-deployment with
+# -e TRACEGEN_LOG_LEVEL=info|debug|silent, or pass -log-level / -quiet.
+ENV TRACEGEN_LOG_LEVEL=error
 ENTRYPOINT ["/usr/bin/tracegen"]
