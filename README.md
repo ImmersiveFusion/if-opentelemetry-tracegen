@@ -11,7 +11,7 @@ Built for testing observability platforms, load testing trace pipelines, and sho
 Every existing trace generator falls into one of two categories:
 
 1. **Flat span generators** (telemetrygen, tracepusher) - produce uniform, identical spans with no service topology
-2. **Full demo apps** (OTel Astronomy Shop, Jaeger HotROD) - require Docker Compose with 15+ containers and 8GB RAM
+2. **Full demo apps** (OTel Astronomy Shop, Jaeger HotROD) - require Docker Compose with 15+ containers and ~6GB RAM
 
 And none of them generate **AI agentic traces**. The LLM observability market has no standalone tool that combines traditional APM with LLM observability. Every specialized LLM tool (Langfuse, LangSmith, Helicone, Arize, Traceloop, Portkey, Galileo) tracks token usage, model costs, and agent tool calls - but none of them provide traditional distributed tracing.
 
@@ -308,7 +308,7 @@ tracegen -endpoint otlp.iapm.app:443 -headers "API-Key=YOUR_IAPM_KEY"
 
 | Capability | tracegen | OTel telemetrygen | OTel Astronomy Shop | Jaeger HotROD | k6 + xk6-tracing |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Single binary, zero infra | **Yes** | 1 binary | 15+ containers, 8GB | 4 containers | k6 + extension |
+| Single binary, zero infra | **Yes** | 1 binary | 15+ containers, ~6GB | 4 containers | k6 + extension |
 | Services | **28** | 1 | ~22 | 4 | User-defined |
 | Pod instances | **59** | 0 | 1/svc | 0 | 0 |
 | Scenario flows | **40** | 0 | ~10 | 1 | User-defined |
