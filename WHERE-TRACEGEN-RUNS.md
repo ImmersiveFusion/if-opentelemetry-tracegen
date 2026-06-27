@@ -2,7 +2,7 @@
 
 **One container. 5.7 MB. It runs anywhere — and this is the board of where it actually does.**
 
-TraceGen ships as a single distroless, multi-arch image (`linux/amd64` + `linux/arm64`), no Compose, no 8 GB of RAM, no microservices to stand up:
+TraceGen ships as a single distroless, multi-arch image (`linux/amd64` + `linux/arm64`), no Compose, no multi-gigabyte RAM footprint, no microservices to stand up:
 
 ```bash
 # -insecure = plaintext gRPC for a local collector (skips TLS); drop it for a remote, authenticated endpoint

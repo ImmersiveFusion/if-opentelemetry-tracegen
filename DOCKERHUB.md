@@ -45,7 +45,7 @@ The image is multi-arch (`linux/amd64`, `linux/arm64`), distroless, and runs as 
 
 ## Why it exists
 
-Existing trace generators are either flat span emitters (no service topology) or full demo apps that need Docker Compose and 8 GB of RAM, and none of them generate AI agentic traces. TraceGen produces topology-rich, failure-injectable traces from a single binary, covering both traditional microservice flows and AI agentic patterns. One image proves a platform can visualize both.
+Existing trace generators are either flat span emitters (no service topology) or full demo apps that need Docker Compose and several GB of RAM, and none of them generate AI agentic traces. TraceGen produces topology-rich, failure-injectable traces from a single binary, covering both traditional microservice flows and AI agentic patterns. One image proves a platform can visualize both.
 
 ## Tags
 
