@@ -1,6 +1,6 @@
 # OpenTelemetry Trace Generator
 
-A single-binary distributed trace generator that produces realistic, topology-rich OTLP traces and correlated logs. No Docker, no microservices to deploy, no infrastructure - just one executable that simulates a full e-commerce platform with up to 28 services, 60 pods, and 20 scenario flows - including AI agentic scenarios with full OTel GenAI semantic conventions. Three complexity levels (light/normal/heavy) let you scale from a clean 10-service demo to the full topology with AI.
+A single-binary distributed trace generator that produces realistic, topology-rich OTLP traces and correlated logs. No Docker Compose, no microservices to deploy, no infrastructure - just one executable (or a 5.7 MB container) that simulates a full e-commerce platform with up to 28 services, dozens of pods that scale with the topology, and 40 scenario flows - including AI agentic scenarios with full OTel GenAI semantic conventions. Three complexity levels (light/normal/heavy) let you scale from a clean 10-service demo to the full topology with AI.
 
 Built for testing observability platforms, load testing trace pipelines, and showcasing distributed system visualizations - for both traditional APM and LLM observability.
 
@@ -38,9 +38,9 @@ tracegen -endpoint your-otlp-endpoint:443
 
 ## Live demo grids — see it running
 
-Seven always-on demo grids stream live OpenTelemetry traces into Immersive APM's 3D player right now — a clean baseline, an AI-native app, a blended environment, phantom-service detection, an AI-outage, and a full incident. Each grid is this container, deployed declaratively via GitOps (Argo CD) in the Immersive Fusion cloud — multi-arch and distroless, one matrix row per grid, shipping to `otlp.iapm.app:443`.
+Seven demo grids stream live OpenTelemetry traces into Immersive APM's 3D player — a clean baseline, an AI-native app, a blended environment, phantom-service detection, an AI-outage, and a full incident. Each grid is this container, deployed declaratively via GitOps (Argo CD) in the Immersive Fusion cloud — multi-arch and distroless, one matrix row per grid, shipping to `otlp.iapm.app:443`.
 
-**See them in 3D:** the full experience is the **IAPM 3D client** — install it and open a grid to walk the live traces. On mobile or can't install right now? **IAPM Web** runs the same grids in your browser at [portal.iapm.app](https://portal.iapm.app).
+**See them in 3D:** the full experience is the **IAPM 3D client** — install it, open a grid, and walk the live traces in three dimensions.
 
 **[Where else does TraceGen run? →](WHERE-TRACEGEN-RUNS.md)** — a community board of deployments. Add yours.
 
@@ -232,7 +232,11 @@ Flags:
   -ai-only             Only run AI agentic scenarios
   -no-logs             Disable OTel log record emission (traces only)
   -insecure            Use plaintext gRPC (no TLS) for local backends
+  -log-level string    Console verbosity: silent, error, info, debug (default "info")
+  -quiet               Errors only (alias for -log-level=error); also silences the startup banner and the periodic "traces sent" heartbeat
 ```
+
+> **Console verbosity.** `silent`/`error` suppress the startup banner and the periodic heartbeat; genuine errors and fatal exits always print to stderr at any level. You can also set it with the `TRACEGEN_LOG_LEVEL` env var (handy for containers). Precedence: `-quiet` > `-log-level` > `TRACEGEN_LOG_LEVEL` > default (`info`). The published container image defaults to `TRACEGEN_LOG_LEVEL=error` so it doesn't spam logs; the bare CLI stays `info`. Override with `-e TRACEGEN_LOG_LEVEL=info` (or `-log-level` / `-quiet`).
 
 ### Complexity Levels
 
@@ -240,7 +244,7 @@ Flags:
 |---|---|---|---|---|
 | **light** | 10 core | ~20 (min replicas) | 6 | Clean demos, small graphs |
 | **normal** | 20 traditional | ~40 | 16 | General testing, full e-commerce |
-| **heavy** | 28 (+ AI) | ~60 | 20 | Full topology with AI agentic flows |
+| **heavy** | 28 (+ AI) | 59 | 20 (of 40 defined) | Full topology with AI agentic flows |
 
 **Light** includes only the e-commerce backbone: web-frontend, api-gateway, order-service, payment-service, inventory-service, user-service, cache-service, auth-service, product-service, and cart-service. Scenarios are limited to the core flows (Create Order, Search & Browse, User Login, Add to Cart, Full Checkout, Health Check).
 
@@ -410,13 +414,10 @@ The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semcon
 [Discord](https://discord.gg/zevywnQp6K) |
 [GitHub](https://github.com/immersivefusion) |
 [Twitter/X](https://twitter.com/immersivefusion) |
-[YouTube](https://www.youtube.com/@immersivefusion)
+[YouTube](https://www.youtube.com/@immersivefusion) |
+[Twitch](https://www.twitch.tv/immersivefusion)
 
 [Try Immersive APM](https://immersivefusion.com/landing/default) for your own projects.
-
-## Colophon
-
-Designed and built with the [Jerry Framework](https://github.com/geekatron/jerry/) ([docs](https://jerry.geekatron.org/)), an AI-native systems engineering framework for Claude Code.
 
 ## License
 
