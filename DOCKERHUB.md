@@ -2,7 +2,7 @@
      (the description API rejects PATs). When you change this, re-paste it on Docker Hub. -->
 # TraceGen
 
-**One container that emits realistic, topology-rich OpenTelemetry traces, including AI agentic spans.** No microservices to deploy, no Docker Compose with 15 containers. A single 5.7 MB image simulates a full e-commerce platform: up to 28 services, 60 pods, 40 scenario flows, and 10 injectable failure modes, with full OTel GenAI semantic conventions for LLM/agent observability.
+**One container that emits realistic, topology-rich OpenTelemetry traces, including AI agentic spans.** No microservices to deploy, no Docker Compose with 15 containers. A single 5.7 MB image simulates a full e-commerce platform: up to 28 services, dozens of pods that scale with the topology, 40 scenario flows, and 10 injectable failure modes, with full OTel GenAI semantic conventions for LLM/agent observability.
 
 Built for testing observability platforms, load-testing trace pipelines, and showcasing distributed-system visualizations, for both traditional APM and LLM observability.
 
@@ -47,9 +47,13 @@ The image is multi-arch (`linux/amd64`, `linux/arm64`), distroless, and runs as 
 
 Existing trace generators are either flat span emitters (no service topology) or full demo apps that need Docker Compose and several GB of RAM, and none of them generate AI agentic traces. TraceGen produces topology-rich, failure-injectable traces from a single binary, covering both traditional microservice flows and AI agentic patterns. One image proves a platform can visualize both.
 
+## See it move
+
+The traces are real, and you can watch them flow. TraceGen feeds live demo grids that stream OpenTelemetry traces into [IAPM](https://immersivefusion.com)'s 3D player. Catch them live on Twitch when we are streaming: [twitch.tv/immersivefusion](https://www.twitch.tv/immersivefusion)
+
 ## Tags
 
-- `latest`, `0.6.1`, ... track the GitHub releases. Pin by digest in production/cluster use.
+- `latest` follows the newest release; each release also publishes a matching semantic-version tag. Pin by digest for reproducible production/cluster runs.
 
 ## Source, issues, full docs
 
