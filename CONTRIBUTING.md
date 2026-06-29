@@ -35,6 +35,29 @@ GOOS=windows GOARCH=amd64 go build -o tracegen.exe ./cmd/tracegen
 4. Use clear, conventional commit messages (`feat:`, `fix:`, `docs:`, …).
 5. Open the PR against `main` and describe what changed and why.
 
+## Releasing
+
+Releases are cut by pushing a version tag. The CI workflow
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds the
+cross-platform binaries, publishes a GitHub Release, and pushes the multi-arch
+container image to Docker Hub.
+
+**Tag format: use the `v`-prefixed form, e.g. `v0.7.4`.** This is the canonical
+scheme going forward (it matches the Go ecosystem and what GoReleaser expects).
+
+```bash
+git tag v0.7.4
+git push origin v0.7.4
+```
+
+The trigger also still accepts the older bare-number form (`0.7.4`) for
+backward compatibility with historical tags, but new releases should always be
+`v`-prefixed so the Tags/Releases lists stay consistent and sort cleanly.
+
+Note: the workflow evaluates the tag trigger **at the moment the tag is
+pushed**. If a tag was pushed before a trigger fix landed on `main`, fixing the
+trigger does not retroactively run it — push a new (higher) version tag instead.
+
 ## Reporting issues
 
 Use the issue templates. For bugs, include your platform/architecture, the exact `tracegen` command and flags, and what you expected versus what happened. `-log-level debug` gives more detail.
