@@ -3,7 +3,12 @@ name: Release
 on:
   push:
     tags:
+      # Accept both the bare-number form (0.1.0 through 0.7.1) and the
+      # conventional v-prefixed form (v0.7.2 onward). The original filter
+      # matched only the bare form, so the v-prefixed v0.7.2 release tag
+      # silently never triggered a run.
       - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
