@@ -413,6 +413,7 @@ The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semcon
 [LinkedIn](https://www.linkedin.com/company/immersivefusion) |
 [Discord](https://discord.gg/zevywnQp6K) |
 [GitHub](https://github.com/immersivefusion) |
+[Bluesky](https://bsky.app/profile/immersivefusion.bsky.social) |
 [Twitter/X](https://twitter.com/immersivefusion) |
 [YouTube](https://www.youtube.com/@immersivefusion) |
 [Twitch](https://www.twitch.tv/immersivefusion)
