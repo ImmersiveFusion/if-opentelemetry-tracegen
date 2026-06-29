@@ -4,7 +4,7 @@ A single-binary distributed trace generator that produces realistic, topology-ri
 
 Built for testing observability platforms, load testing trace pipelines, and showcasing distributed system visualizations - for both traditional APM and LLM observability.
 
-![alt text](.img/screenshot.png)
+![TraceGen traces in Immersive APM's 3D player](.img/screenshot.png)
 
 ## Why This Exists
 
@@ -37,6 +37,8 @@ tracegen -endpoint your-otlp-endpoint:443
 > **See it in 3D** - Send traces to [Immersive APM](https://immersivefusion.com) (`tracegen -endpoint otlp.iapm.app:443 -headers "api-key=YOUR_KEY"`) to explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
 
 ## Live demo grids — see it running
+
+![The seven demo grids streaming live, in motion](.img/tracegen.gif)
 
 Seven demo grids stream live OpenTelemetry traces into Immersive APM's 3D player — a clean baseline, an AI-native app, a blended environment, phantom-service detection, an AI-outage, and a full incident. Each grid is this container, deployed declaratively via GitOps (Argo CD) in the Immersive Fusion cloud — multi-arch and distroless, one matrix row per grid, shipping to `otlp.iapm.app:443`.
 
