@@ -187,12 +187,12 @@ func errorChance(baseRate float64) bool {
 	return rand.Float64() < baseRate*errorMultiplier
 }
 
-// Console verbosity levels — controls ONLY stdout chatter (the startup banner and the
-// periodic "traces sent" heartbeat). Distinct from the OTel log records the generator
-// emits. Genuine errors (stderr) and fatal exits always surface, at any level.
+// Console verbosity levels — controls ONLY the periodic "traces sent" heartbeat.
+// Distinct from the OTel log records the generator emits. The startup banner
+// ("what it's doing") and genuine errors (stderr) always surface, at any level.
 const (
-	logSilent = iota // nothing but fatal errors
-	logError         // errors only — suppresses banner + heartbeat (the sane container default)
+	logSilent = iota // banner + errors only, no heartbeat
+	logError         // errors only — suppresses heartbeat (the sane container default)
 	logInfo          // banner + periodic heartbeat (CLI default, current behavior)
 	logDebug         // reserved for future verbose diagnostics
 )
@@ -238,6 +238,23 @@ func infoln(a ...any) {
 	}
 }
 
+// bannerf / bannerln write the startup "what it's doing" intro to stdout
+// regardless of log level — even under -quiet, -log-level=error, or =silent.
+// The banner is operator orientation, not chatter, so it is never suppressed.
+func bannerf(format string, a ...any) {
+	fmt.Printf(format, a...)
+}
+
+func bannerln(a ...any) {
+	fmt.Println(a...)
+}
+
+// errorf writes to stderr regardless of log level — errors are always shown,
+// even under -log-level=silent.
+func errorf(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, format, a...)
+}
+
 func main() {
 	endpointFlag := flag.String("endpoint", "localhost:4317", "OTLP gRPC endpoint (host:port)")
 	headersFlag := flag.String("headers", "", "OTLP headers as key=value pairs, comma-separated (e.g. \"api-key=SECRET,x-org=myorg\")")
@@ -250,7 +267,7 @@ func main() {
 	complexityFlag := flag.String("complexity", "normal", "topology complexity: light, normal, heavy")
 	noLogsFlag := flag.Bool("no-logs", false, "disable OTel log record emission (traces only)")
 	logLevelFlag := flag.String("log-level", "", "console verbosity: silent, error, info, debug (default info; env TRACEGEN_LOG_LEVEL)")
-	quietFlag := flag.Bool("quiet", false, "errors only — suppress the startup banner and the periodic 'traces sent' heartbeat (alias for -log-level=error)")
+	quietFlag := flag.Bool("quiet", false, "errors only — suppress the periodic 'traces sent' heartbeat (alias for -log-level=error); the startup banner and errors always print")
 	flag.Parse()
 	logLevel = resolveLogLevel(*logLevelFlag, *quietFlag)
 	consumersEnabled = !*noConsumers
@@ -454,27 +471,27 @@ func main() {
 	}
 
 	errorLabels := []string{"none", "rare", "rare", "low", "low", "normal", "elevated", "high", "high", "extreme", "chaos"}
-	infoln()
-	infof("OpenTelemetry Trace Generator (%d services, %d pods, %d scenarios)\n", totalServices, len(pods), len(scenarios))
-	infof("Endpoint: %s  Complexity: %s\n", endpoint, complexity)
-	infof("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
+	bannerln()
+	bannerf("OpenTelemetry Trace Generator (%d services, %d pods, %d scenarios)\n", totalServices, len(pods), len(scenarios))
+	bannerf("Endpoint: %s  Complexity: %s\n", endpoint, complexity)
+	bannerf("Level %d: %s  (tick=%dms, burst=%d-%d)  Errors: %s (%d)\n",
 		*level, cfg.label, cfg.tickMs, cfg.burstMin, cfg.burstMax, errorLabels[*errors], *errors)
 	if aiOnly && noAIBackends {
-		fmt.Fprintln(os.Stderr, "Error: -ai-only and -no-ai-backends are mutually exclusive.")
+		errorf("Error: -ai-only and -no-ai-backends are mutually exclusive.\n")
 		os.Exit(1)
 	}
 	if aiOnly {
-		infoln("Mode: AI-only (traditional scenarios excluded)")
+		bannerln("Mode: AI-only (traditional scenarios excluded)")
 	}
 	if noAIBackends {
-		infoln("Mode: No AI backends (AI services excluded)")
+		bannerln("Mode: No AI backends (AI services excluded)")
 	}
 	if len(scenarios) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: no scenarios available with current flags.")
+		errorf("Error: no scenarios available with current flags.\n")
 		os.Exit(1)
 	}
-	infoln("Press Ctrl+C to stop.")
-	infoln()
+	bannerln("Press Ctrl+C to stop.")
+	bannerln()
 
 	sent := 0
 	for {
