@@ -4,7 +4,7 @@ A single-binary distributed trace generator that produces realistic, topology-ri
 
 Built for testing observability platforms, load testing trace pipelines, and showcasing distributed system visualizations - for both traditional APM and LLM observability.
 
-![TraceGen traces in Immersive APM's 3D player](.img/screenshot.png)
+![TraceGen traces in IAPM's 3D player](.img/screenshot.png)
 
 ## Why This Exists
 
@@ -34,15 +34,15 @@ export OTEL_EXPORTER_OTLP_HEADERS="api-key=YOUR_KEY"
 tracegen -endpoint your-otlp-endpoint:443
 ```
 
-> **See it in 3D** - Send traces to [Immersive APM](https://immersivefusion.com) (`tracegen -endpoint otlp.iapm.app:443 -headers "api-key=YOUR_KEY"`) to explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
+> **See it in 3D** - Send traces to [IAPM](https://immersivefusion.com) (`tracegen -endpoint otlp.iapm.app:443 -headers "api-key=YOUR_KEY"`) to explore them as a 3D force-directed graph, drill into conventional trace waterfalls for detailed analysis, and get AI-assisted insights from [Tessa](https://immersivefusion.com). For a ready-made example without any setup, try the [OpenTelemetry Chaos Simulator](https://github.com/ImmersiveFusion/if-opentelemetry-chaos-simulator-sample) at [demo.iapm.app](https://demo.iapm.app) - a fully interactive sandbox with visual failure injection.
 
 ## Live demo grids — see it running
 
 ![The seven demo grids streaming live, in motion](.img/tracegen.gif)
 
-Seven demo grids stream live OpenTelemetry traces into Immersive APM's 3D player — a clean baseline, an AI-native app, a blended environment, phantom-service detection, an AI-outage, and a full incident. Each grid is this container, deployed declaratively via GitOps (Argo CD) in the Immersive Fusion cloud — multi-arch and distroless, one matrix row per grid, shipping to `otlp.iapm.app:443`.
+Seven always-on demo grids stream live OpenTelemetry traces into IAPM's 3D player right now — a clean baseline, an AI-native app, a blended environment, phantom-service detection, an AI-outage, and a full incident. Each grid is this container, deployed declaratively via GitOps (Argo CD) in the Immersive Fusion cloud — multi-arch and distroless, one matrix row per grid, shipping to `otlp.iapm.app:443`.
 
-**See them in 3D:** the full experience is the **IAPM 3D client** — install it, open a grid, and walk the live traces in three dimensions.
+**See them in 3D:** the full experience is the **IAPM 3D client** — install it and open a grid to walk the live traces. On mobile or can't install right now? **IAPM Web** runs the same grids in your browser at [portal.iapm.app](https://portal.iapm.app).
 
 **[Where else does TraceGen run? →](WHERE-TRACEGEN-RUNS.md)** — a community board of deployments. Add yours.
 
@@ -306,7 +306,7 @@ tracegen -endpoint otlp.example.com:443 -headers "api-key=YOUR_KEY"
 export OTEL_EXPORTER_OTLP_HEADERS="api-key=SECRET,x-team=platform"
 tracegen -endpoint otlp.example.com:443
 
-# Send to Immersive APM (3D trace visualization)
+# Send to IAPM (3D trace visualization)
 tracegen -endpoint otlp.iapm.app:443 -headers "API-Key=YOUR_IAPM_KEY"
 ```
 
@@ -339,7 +339,7 @@ tracegen -endpoint otlp.iapm.app:443 -headers "API-Key=YOUR_IAPM_KEY"
 
 Works with any OTLP gRPC-compatible backend:
 
-- [Immersive APM](https://immersivefusion.com) (3D visualization)
+- [IAPM](https://immersivefusion.com) (3D visualization)
 - Jaeger
 - Grafana Tempo
 - Honeycomb
@@ -420,7 +420,7 @@ The [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semcon
 [YouTube](https://www.youtube.com/@immersivefusion) |
 [Twitch](https://www.twitch.tv/immersivefusion)
 
-[Try Immersive APM](https://immersivefusion.com/landing/default) for your own projects.
+[Try IAPM](https://immersivefusion.com/landing/default) for your own projects.
 
 ## License
 
