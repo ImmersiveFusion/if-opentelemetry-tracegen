@@ -235,10 +235,10 @@ Flags:
   -no-logs             Disable OTel log record emission (traces only)
   -insecure            Use plaintext gRPC (no TLS) for local backends
   -log-level string    Console verbosity: silent, error, info, debug (default "info")
-  -quiet               Errors only (alias for -log-level=error); also silences the startup banner and the periodic "traces sent" heartbeat
+  -quiet               Errors only (alias for -log-level=error); silences the periodic "traces sent" heartbeat
 ```
 
-> **Console verbosity.** `silent`/`error` suppress the startup banner and the periodic heartbeat; genuine errors and fatal exits always print to stderr at any level. You can also set it with the `TRACEGEN_LOG_LEVEL` env var (handy for containers). Precedence: `-quiet` > `-log-level` > `TRACEGEN_LOG_LEVEL` > default (`info`). The published container image defaults to `TRACEGEN_LOG_LEVEL=error` so it doesn't spam logs; the bare CLI stays `info`. Override with `-e TRACEGEN_LOG_LEVEL=info` (or `-log-level` / `-quiet`).
+> **Console verbosity.** `silent`/`error` suppress the periodic heartbeat. The startup banner ("what it's doing") and genuine errors/fatal exits always print to stderr at any level. You can also set it with the `TRACEGEN_LOG_LEVEL` env var (handy for containers). Precedence: `-quiet` > `-log-level` > `TRACEGEN_LOG_LEVEL` > default (`info`). The published container image defaults to `TRACEGEN_LOG_LEVEL=error` so it doesn't spam logs; the bare CLI stays `info`. Override with `-e TRACEGEN_LOG_LEVEL=info` (or `-log-level` / `-quiet`).
 
 ### Complexity Levels
 
